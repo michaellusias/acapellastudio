@@ -49,11 +49,28 @@ SupportedStreamConfig { channels: 2, sample_rate: 48000, buffer_size: Range { mi
 
 **What this does NOT yet tell us:** device enumeration and default config say nothing about actual round-trip latency, CPU usage under load, or dropout/underrun behavior — those require actually opening a live input stream and measuring real timestamps, which is the next step, not yet done.
 
-## 1.4 Action items carried forward
+## 1.4 Live input stream — real callback timing (real, run on actual hardware)
 
-1. Open an actual input stream and measure real captured-sample timestamps against wall-clock time, at multiple buffer sizes within the confirmed 32–2048 range.
-2. Test whether requesting a smaller `BufferSize::Fixed` value (e.g. 128 or 256) succeeds without error at this backend/device combination, since the reported range is a capability range, not a guarantee every value works cleanly.
-3. Once a working input stream exists, measure real CPU usage and check for real underruns/dropouts — none of this has been measured yet.
+A live input stream was opened and run for 5 seconds, counting callbacks and captured samples. Real output:
+
+```
+Using config: SupportedStreamConfig { channels: 2, sample_rate: 48000, buffer_size: Range { min: 32, max: 2048 }, sample_format: F32 }
+Elapsed: 5.000s
+Total callbacks: 232
+Total sample-frames captured: 237568
+Average samples per callback: 1024.0
+Implied sample rate: 47511.1 Hz (config says 48000)
+```
+
+**Real, important finding:** with `BufferSize::Default` (not yet explicitly requested), PipeWire chose a **1024-sample buffer** — at 48kHz that's **~21.3ms per buffer**, already more than double our NFR-RT-002 ≤10ms end-to-end monitoring target, from buffer duration alone, before any device/driver latency is even added. This matches a specific warning already found in cpal's own documentation (Literature Review context) that `BufferSize::Default` can land on a full PipeWire quantum rather than a low-latency value. **We have not yet requested a smaller buffer — this is not a wall, it's the next concrete step.**
+
+The ~1% gap between the implied sample rate (47511 Hz, computed from our own wall-clock timer) and the configured 48000 Hz is most likely measurement imprecision in the 5-second `std::thread::sleep` call (which commonly overshoots slightly due to OS scheduling), not an audio-path problem — this has not been investigated further since it's a minor, expected discrepancy in our own measurement code, not the audio data itself.
+
+## 1.5 Action items carried forward
+
+1. **Explicitly request `BufferSize::Fixed(128)` (or another small value) instead of relying on `BufferSize::Default`, and re-measure** — this is the direct next step, since we now have real evidence the default is too large for our latency target.
+2. Once a smaller buffer is confirmed working, measure real round-trip (input-to-output) latency, not just callback throughput — this still requires either a loopback test or an external measurement method, neither set up yet.
+3. Measure real CPU usage and check for real underruns/dropouts once a smaller buffer is in use — smaller buffers increase both CPU load and glitch risk, so this matters more once we're not using the safe 1024-sample default.
 
 ---
 
