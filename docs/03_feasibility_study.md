@@ -81,11 +81,29 @@ Implied sample rate: 47717.3 Hz (config says 48000)
 
 The same ~1% implied-vs-configured sample rate gap persists at this smaller buffer size too (47717 Hz vs 48000 Hz), consistent with it being an artifact of our own `thread::sleep`-based timing rather than an audio-path issue, since the gap size didn't change meaningfully between the 1024-sample and 128-sample tests.
 
-## 1.6 Action items carried forward
+## 1.7 Round-trip acoustic loopback test — first attempt (real, but not yet at target buffer size)
 
-1. Measure real round-trip (input-to-output) latency, not just input-side buffer-fill timing — needs either a loopback test (feed input back to output and measure the delay) or an external measurement method. Not yet done.
-2. Measure real CPU usage while the 128-sample stream runs, and check for real underruns/dropouts over a longer test — smaller buffers increase both CPU load and glitch risk, neither measured yet.
+A real loopback test was built and run: play a 100ms click through the laptop speakers, detect it on the built-in mic via amplitude threshold, measure the time between.
+
+**Real result:**
+```
+Input config: StreamConfig { channels: 2, sample_rate: 48000, buffer_size: Default }
+Output config: StreamConfig { channels: 2, sample_rate: 48000, buffer_size: Default }
+Click played at:   4034.567ms
+Click detected at: 4077.180ms
+Estimated round-trip acoustic latency: 42.61ms
+```
+
+**Important honesty flag: this result is not yet representative of our actual target.** The test code used `BufferSize::Default` on both streams (visible in the printed config), not the `BufferSize::Fixed(128)` we already confirmed the backend honors (§1.5). This 42.61ms figure is likely closer to whatever PipeWire's default quantum produced for a combined input+output session (potentially the same ~1024-sample-scale default seen in §1.4, or a different default when running duplex — not yet confirmed either way), not the low-latency configuration we actually want to measure.
+
+This result should **not** be compared against NFR-RT-002's ≤10ms target yet — that comparison would be measuring the wrong configuration. Corrected re-test with explicit `Fixed(128)` on both streams is the direct next step, not a nice-to-have.
+
+## 1.8 Action items carried forward
+
+1. **Re-run the loopback test with `BufferSize::Fixed(128)` explicitly set on both input and output streams** — the 42.61ms result above used the default buffer and should not be treated as our real latency figure yet.
+2. Measure real CPU usage while the low-latency stream runs, and check for real underruns/dropouts over a longer test.
 3. Test even smaller buffer sizes (e.g. 64, the low end of NFR-RT-001's target range) to see if they're also honored, or where the backend starts to refuse/fall back.
+4. Once a Fixed(128) result exists, subtract a rough estimate of pure acoustic propagation delay (negligible at typical laptop-speaker-to-mic distance, well under 1ms) to isolate roughly how much of the remaining latency is software/OS path vs. transducer response — still an estimate, not a precise breakdown.
 
 ---
 
