@@ -1,0 +1,7 @@
+[package]
+name = "audio-io-prototype"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cpal = { version = "0.18.2", features = ["pipewire", "realtime"] }

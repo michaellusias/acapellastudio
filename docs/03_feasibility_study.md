@@ -9,16 +9,51 @@
 
 # 1. Audio Feasibility (Microphone input, buffers, backend, latency, CPU, dropouts)
 
-**Status: NOT YET TESTED.**
+**Status: IN PROGRESS — real hardware setup underway on Michael's machine.**
 
-This requires a real microphone, real audio backend (PipeWire/JACK on Kubuntu), and Michael's actual HP EliteBook hardware. None of this can be honestly tested in this sandboxed development container, which has no audio input device. This is the natural point where work moves from documentation/prototyping-on-synthetic-data to hands-on setup on Michael's own machine, one step at a time, per the operating charter.
+## 1.1 Toolchain setup (real, done)
 
-**What this section will require when we get there:**
-- Installing Rust audio I/O crate (`cpal`) on the actual dev machine
-- Confirming PipeWire/JACK availability and configuration on Kubuntu
-- Opening a real input stream and measuring actual round-trip latency at various buffer sizes (64/128/256/512 samples)
-- Measuring actual CPU usage and checking for real buffer underruns/overruns
-- Documenting the actual reference hardware per NFR-RT-010 (CPU model, cores, RAM, audio interface — built-in laptop mic/output initially, presumably)
+Setting up `cpal` (with `pipewire` + `realtime` features) on the actual reference hardware required installing several system dependencies not present by default on this Kubuntu install, discovered one real compile error at a time rather than assumed in advance:
+
+1. `libasound2-dev` — ALSA development headers (cpal requires these even when using PipeWire/JACK/PulseAudio, per cpal's own documentation).
+2. `libpipewire-0.3-dev` (pulled in `libspa-0.2-dev` as a dependency) — PipeWire's own development headers, matching the running PipeWire version (1.6.2).
+3. `clang` + `libclang-dev` (pulled in LLVM 21 and related packages) — required by `bindgen`, which `libspa-sys`/`pipewire-sys` use to generate Rust bindings from PipeWire's C headers at build time.
+
+After all three were installed, `cargo build` succeeded cleanly.
+
+## 1.2 Host and device enumeration (real, run on actual hardware)
+
+A small cpal program was run to enumerate available audio hosts and devices. Real output:
+
+```
+Available audio hosts: [PipeWire, Alsa]
+Using host: PipeWire
+```
+
+**cpal selected the native PipeWire host as the default**, not the ALSA fallback — confirming the `pipewire` feature we enabled is actually functioning, not silently falling back to the ALSA compatibility path.
+
+**Default input device config:**
+```
+SupportedStreamConfig { channels: 2, sample_rate: 48000, buffer_size: Range { min: 32, max: 2048 }, sample_format: F32 }
+```
+- 48kHz sample rate, stereo (2-channel), 32-bit float samples.
+- **Real, useful finding for NFR-RT-001:** the actual supported buffer-size range on this hardware/backend combination is 32–2048 samples — our Problem Statement's stated target range (64/128/256/512) sits comfortably inside this, confirming those targets are at least technically reachable here, though "reachable" is not the same as "low-latency in practice" — actual round-trip latency still needs to be measured, not inferred from this range alone.
+
+**Real input devices enumerated:**
+- `default_sink` / `default_input` (PipeWire's virtual default aliases)
+- `Ryzen HD Audio Controller Analog Stereo` (driver: `api.alsa.pcm.source`, address `front:1`) — **this is the actual built-in microphone**, reached via PipeWire's ALSA plugin layer.
+
+## 1.3 Honest interpretation
+
+**What this confirms:** the toolchain is real and working end-to-end (native PipeWire backend, real device detection) on the actual reference hardware (AMD Ryzen 7 8840HS, per NFR-RT-010). This is a genuine prerequisite cleared, not a final answer.
+
+**What this does NOT yet tell us:** device enumeration and default config say nothing about actual round-trip latency, CPU usage under load, or dropout/underrun behavior — those require actually opening a live input stream and measuring real timestamps, which is the next step, not yet done.
+
+## 1.4 Action items carried forward
+
+1. Open an actual input stream and measure real captured-sample timestamps against wall-clock time, at multiple buffer sizes within the confirmed 32–2048 range.
+2. Test whether requesting a smaller `BufferSize::Fixed` value (e.g. 128 or 256) succeeds without error at this backend/device combination, since the reported range is a capability range, not a guarantee every value works cleanly.
+3. Once a working input stream exists, measure real CPU usage and check for real underruns/dropouts — none of this has been measured yet.
 
 ---
 
@@ -150,7 +185,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 
 | Area | Status | Real evidence produced? |
 |---|---|---|
-| Audio I/O feasibility | Not started | No — needs Michael's hardware |
+| Audio I/O feasibility | **In progress** | **Yes** — real toolchain built on actual hardware, native PipeWire host confirmed active, real device/config enumeration. Latency/CPU/dropout measurement not yet done. |
 | Pitch detection | Partial | **Yes** — real synthetic-signal test, real code, real numbers, real unexplained anomaly flagged |
 | Pitch shifting | Not started | No — needs real audio + PSOLA/vocoder implementation |
 | Key detection | Not started | No — needs real melody recordings |
