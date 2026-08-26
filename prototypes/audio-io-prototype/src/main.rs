@@ -23,8 +23,10 @@ fn main() {
     let input_device = host.default_input_device().expect("no input device");
     let output_device = host.default_output_device().expect("no output device");
 
-    let input_config: cpal::StreamConfig = input_device.default_input_config().unwrap().into();
-    let output_config: cpal::StreamConfig = output_device.default_output_config().unwrap().into();
+    let mut input_config: cpal::StreamConfig = input_device.default_input_config().unwrap().into();
+    let mut output_config: cpal::StreamConfig = output_device.default_output_config().unwrap().into();
+    input_config.buffer_size = cpal::BufferSize::Fixed(128);
+    output_config.buffer_size = cpal::BufferSize::Fixed(128);
 
     println!("Input config: {:?}", input_config);
     println!("Output config: {:?}", output_config);
@@ -101,8 +103,7 @@ fn main() {
     output_stream.play().expect("failed to start output stream");
     input_stream.play().expect("failed to start input stream");
 
-    println!("Warming up (~1s), then playing a 100ms click through your headphones.");
-    println!("Hold the headphones close to the built-in mic now.");
+    println!("Warming up (~1s), then playing a 100ms click through your speakers.");
 
     // Wait up to 5 seconds total for detection.
     std::thread::sleep(Duration::from_secs(6));
@@ -114,7 +115,7 @@ fn main() {
         println!("\nClick was never played - something went wrong with the output stream timing.");
     } else if detected == 0 {
         println!("\nClick was played at {:.3}ms but was NOT detected on the input within the test window.", played as f64 / 1_000_000.0);
-        println!("Possible causes: headphones not close enough to mic, detection threshold too high, or genuinely no signal reaching the mic.");
+        println!("Possible causes: speaker volume too low, detection threshold too high, or genuinely no signal reaching the mic.");
     } else {
         let latency_ns = detected.saturating_sub(played);
         let latency_ms = latency_ns as f64 / 1_000_000.0;

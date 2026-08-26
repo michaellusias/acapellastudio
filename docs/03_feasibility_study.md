@@ -98,12 +98,29 @@ Estimated round-trip acoustic latency: 42.61ms
 
 This result should **not** be compared against NFR-RT-002's ≤10ms target yet — that comparison would be measuring the wrong configuration. Corrected re-test with explicit `Fixed(128)` on both streams is the direct next step, not a nice-to-have.
 
-## 1.8 Action items carried forward
+## 1.9 Round-trip acoustic loopback test — corrected (Fixed(128) on both streams)
 
-1. **Re-run the loopback test with `BufferSize::Fixed(128)` explicitly set on both input and output streams** — the 42.61ms result above used the default buffer and should not be treated as our real latency figure yet.
-2. Measure real CPU usage while the low-latency stream runs, and check for real underruns/dropouts over a longer test.
-3. Test even smaller buffer sizes (e.g. 64, the low end of NFR-RT-001's target range) to see if they're also honored, or where the backend starts to refuse/fall back.
-4. Once a Fixed(128) result exists, subtract a rough estimate of pure acoustic propagation delay (negligible at typical laptop-speaker-to-mic distance, well under 1ms) to isolate roughly how much of the remaining latency is software/OS path vs. transducer response — still an estimate, not a precise breakdown.
+Same test, re-run twice with the buffer size bug fixed. Real results:
+
+```
+Run 1: buffer_size: Fixed(128) — Estimated round-trip acoustic latency: 16.00ms
+Run 2: buffer_size: Fixed(128) — Estimated round-trip acoustic latency: 15.76ms
+```
+
+Mean of the two runs: **15.88ms**. The two runs are consistent within a quarter-millisecond of each other, which is itself a meaningful signal that this is a real, repeatable measurement rather than noise.
+
+**Honest interpretation:**
+- This exceeds NFR-RT-002's ≤10ms target, at the correct buffer size this time.
+- **This number is not a clean measurement of software/OS audio-path latency alone.** It includes: (a) negligible acoustic air-propagation delay at laptop-speaker-to-mic distance (well under 1ms), (b) real speaker and microphone transducer response time (electrical→acoustic and acoustic→electrical conversion, each with their own settling/response characteristics), and (c) the actual PipeWire/OS audio-path latency we actually care about for NFR-RT-002. This test cannot cleanly separate (b) from (c) — that's a genuine limitation of the acoustic-loopback method, not something to gloss over.
+- A more precise measurement would require either an electrical loopback (a cable from output jack directly to a line-input, bypassing speaker/mic transducers entirely) or a purpose-built latency-test tool — neither available/set up yet.
+- **What this does tell us, honestly:** the *true* software-path latency is very likely somewhat lower than 15.88ms, since some of that figure is transducer response, not software — but we cannot currently say precisely how much lower. NFR-RT-002 as currently written (≤10ms) should be treated as "not yet demonstrated, plausibly close but not confirmed" rather than either "met" or "failed" outright.
+
+## 1.10 Action items carried forward
+
+1. Measure real CPU usage while the 128-sample stream runs, and check for real underruns/dropouts over a longer test — not yet done.
+2. Test even smaller buffer sizes (e.g. 64, the low end of NFR-RT-001's target range) to see if latency drops further and whether it's still stable.
+3. Attempt to isolate transducer response from software-path latency — either via an electrical loopback cable (output jack directly to line input) if one becomes available, or by researching typical speaker/mic transducer response times to estimate a plausible split, clearly labeled as an estimate if we go that route.
+4. Revisit whether NFR-RT-002's ≤10ms target should be reconsidered given this real evidence, or whether the gap is likely explained by transducer response once isolated — this is a genuine open question, not resolved by this data alone.
 
 ---
 
@@ -235,7 +252,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 
 | Area | Status | Real evidence produced? |
 |---|---|---|
-| Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host confirmed, live stream running at a real 128-sample (2.667ms) buffer, honored by the backend. Round-trip latency/CPU/dropout measurement not yet done. |
+| Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host, real round-trip acoustic loopback latency measured at correct 128-sample buffer: 15.76ms/16.00ms (two runs, consistent) — exceeds NFR-RT-002's ≤10ms target, but figure includes unseparated transducer response, not pure software latency. CPU/dropout measurement not yet done. |
 | Pitch detection | Partial | **Yes** — real synthetic-signal test, real code, real numbers, real unexplained anomaly flagged |
 | Pitch shifting | Not started | No — needs real audio + PSOLA/vocoder implementation |
 | Key detection | Not started | No — needs real melody recordings |
