@@ -1,25 +1,27 @@
-// Round-trip acoustic loopback latency test — AcapellaStudio Phase 3 Feasibility Study
+// CPU/dropout endurance test — AcapellaStudio Phase 3 Feasibility Study
 // Run on Michael's actual reference hardware (AMD Ryzen 7 8840HS, Kubuntu, PipeWire 1.6.2).
 //
-// HONEST METHOD NOTE: this measures ACOUSTIC round-trip latency (output ->
-// headphone driver -> air -> microphone -> input), not pure software/OS
-// audio-path latency. It includes real physical propagation delay and
-// transducer response time. It uses simple amplitude-threshold click
-// detection, not cross-correlation - a rough but real and honest estimate,
-// not a lab-grade measurement.
+// HONEST METHOD NOTE: this does NOT read PipeWire's own xrun/underrun counter
+// (cpal doesn't expose that portably). Instead it measures the wall-clock
+// time between consecutive input callbacks. At a 128-sample/48kHz buffer,
+// callbacks should arrive roughly every 2.667ms. A callback that arrives
+// much later than expected suggests something delayed the audio thread -
+// a reasonable proxy for real-time deadline problems, not a direct
+// measurement of an actual buffer underrun/overrun. CPU and memory usage
+// should be measured by wrapping this binary in `/usr/bin/time -v`, not
+// self-reported from inside the program.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const CLICK_AMPLITUDE: f32 = 0.9;
-const CLICK_DURATION_SAMPLES: usize = 4800; // 100ms burst at 48kHz, loud and long enough to detect reliably
-const DETECT_THRESHOLD: f32 = 0.02; // conservative, since acoustic path attenuates a lot
+const TEST_DURATION_SECS: u64 = 30;
+const EXPECTED_BUFFER_MS: f64 = 128.0 / 48000.0 * 1000.0;
+const GAP_WARNING_MULTIPLIER: f64 = 2.0;
 
 fn main() {
     let host = cpal::default_host();
-
     let input_device = host.default_input_device().expect("no input device");
     let output_device = host.default_output_device().expect("no output device");
 
@@ -28,73 +30,42 @@ fn main() {
     input_config.buffer_size = cpal::BufferSize::Fixed(128);
     output_config.buffer_size = cpal::BufferSize::Fixed(128);
 
-    println!("Input config: {:?}", input_config);
-    println!("Output config: {:?}", output_config);
+    println!("Running {}s endurance test at 128-sample buffer (expected ~{:.3}ms/callback)", TEST_DURATION_SECS, EXPECTED_BUFFER_MS);
+    println!("(This process should be wrapped in `/usr/bin/time -v` for real CPU/memory numbers)\n");
 
-    let start = Instant::now();
+    let callback_count = Arc::new(AtomicU64::new(0));
+    let large_gap_count = Arc::new(AtomicU64::new(0));
+    let last_callback_time: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
+    let gap_samples: Arc<Mutex<Vec<f64>>> = Arc::new(Mutex::new(Vec::with_capacity(20000)));
 
-    // 0 = not yet happened. Stored as nanoseconds since `start`.
-    let play_time_ns = Arc::new(AtomicU64::new(0));
-    let detect_time_ns = Arc::new(AtomicU64::new(0));
-
-    let play_time_ns_out = play_time_ns.clone();
-    let mut click_samples_remaining = 0usize;
-    let mut click_started = false;
-    let warmup_callbacks = Arc::new(AtomicU64::new(0));
-    let warmup_callbacks_out = warmup_callbacks.clone();
-
-    let out_channels = output_config.channels as usize;
+    let cc = callback_count.clone();
+    let lgc = large_gap_count.clone();
+    let lct_in = last_callback_time.clone();
+    let gs_in = gap_samples.clone();
 
     let output_stream = output_device.build_output_stream(
         output_config.clone(),
         move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-            let n_callbacks = warmup_callbacks_out.fetch_add(1, Ordering::Relaxed);
-            // Wait ~1 second of callbacks before firing the click, so streams
-            // are stable first. At 128 samples/48kHz that's roughly 375 callbacks.
-            if n_callbacks < 375 {
-                for s in data.iter_mut() { *s = 0.0; }
-                return;
-            }
-            if !click_started {
-                click_started = true;
-                click_samples_remaining = CLICK_DURATION_SAMPLES;
-                play_time_ns_out.store(start.elapsed().as_nanos() as u64, Ordering::Relaxed);
-            }
-            for frame in data.chunks_mut(out_channels) {
-                let sample = if click_samples_remaining > 0 {
-                    click_samples_remaining -= 1;
-                    CLICK_AMPLITUDE
-                } else {
-                    0.0
-                };
-                for s in frame.iter_mut() { *s = sample; }
-            }
+            for s in data.iter_mut() { *s = 0.0; }
         },
         move |err| eprintln!("Output stream error: {}", err),
         None,
     ).expect("failed to build output stream");
 
-    let play_time_ns_in = play_time_ns.clone();
-    let detect_time_ns_in = detect_time_ns.clone();
-    let in_channels = input_config.channels as usize;
-
     let input_stream = input_device.build_input_stream(
         input_config.clone(),
-        move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            if detect_time_ns_in.load(Ordering::Relaxed) != 0 {
-                return; // already detected, ignore further callbacks
-            }
-            let played_at = play_time_ns_in.load(Ordering::Relaxed);
-            if played_at == 0 {
-                return; // click hasn't been played yet
-            }
-            for frame in data.chunks(in_channels) {
-                if frame.iter().any(|s| s.abs() > DETECT_THRESHOLD) {
-                    let now_ns = start.elapsed().as_nanos() as u64;
-                    detect_time_ns_in.store(now_ns, Ordering::Relaxed);
-                    break;
+        move |_data: &[f32], _: &cpal::InputCallbackInfo| {
+            cc.fetch_add(1, Ordering::Relaxed);
+            let now = Instant::now();
+            let mut last = lct_in.lock().unwrap();
+            if let Some(prev) = *last {
+                let gap_ms = now.duration_since(prev).as_secs_f64() * 1000.0;
+                gs_in.lock().unwrap().push(gap_ms);
+                if gap_ms > EXPECTED_BUFFER_MS * GAP_WARNING_MULTIPLIER {
+                    lgc.fetch_add(1, Ordering::Relaxed);
                 }
             }
+            *last = Some(now);
         },
         move |err| eprintln!("Input stream error: {}", err),
         None,
@@ -103,28 +74,38 @@ fn main() {
     output_stream.play().expect("failed to start output stream");
     input_stream.play().expect("failed to start input stream");
 
-    println!("Warming up (~1s), then playing a 100ms click through your speakers.");
+    std::thread::sleep(Duration::from_secs(TEST_DURATION_SECS));
 
-    // Wait up to 5 seconds total for detection.
-    std::thread::sleep(Duration::from_secs(6));
+    drop(output_stream);
+    drop(input_stream);
 
-    let played = play_time_ns.load(Ordering::Relaxed);
-    let detected = detect_time_ns.load(Ordering::Relaxed);
+    let total_callbacks = callback_count.load(Ordering::Relaxed);
+    let large_gaps = large_gap_count.load(Ordering::Relaxed);
+    let gaps = gap_samples.lock().unwrap();
 
-    if played == 0 {
-        println!("\nClick was never played - something went wrong with the output stream timing.");
-    } else if detected == 0 {
-        println!("\nClick was played at {:.3}ms but was NOT detected on the input within the test window.", played as f64 / 1_000_000.0);
-        println!("Possible causes: speaker volume too low, detection threshold too high, or genuinely no signal reaching the mic.");
-    } else {
-        let latency_ns = detected.saturating_sub(played);
-        let latency_ms = latency_ns as f64 / 1_000_000.0;
-        println!("\n=== RESULT ===");
-        println!("Click played at:   {:.3}ms (since stream start)", played as f64 / 1_000_000.0);
-        println!("Click detected at: {:.3}ms (since stream start)", detected as f64 / 1_000_000.0);
-        println!("Estimated round-trip acoustic latency: {:.2}ms", latency_ms);
-        println!("\nNOTE: this includes real acoustic propagation + transducer delay,");
-        println!("not just software/OS audio-path latency. Treat as a rough real-world");
-        println!("estimate, not a precise software-only measurement.");
+    if gaps.is_empty() {
+        println!("No gap data collected - something went wrong.");
+        return;
     }
+
+    let mean: f64 = gaps.iter().sum::<f64>() / gaps.len() as f64;
+    let max: f64 = gaps.iter().cloned().fold(f64::MIN, f64::max);
+    let min: f64 = gaps.iter().cloned().fold(f64::MAX, f64::min);
+    let variance: f64 = gaps.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / gaps.len() as f64;
+    let stddev = variance.sqrt();
+
+    println!("=== RESULTS ===");
+    println!("Total callbacks: {}", total_callbacks);
+    println!("Expected callback interval: {:.3}ms", EXPECTED_BUFFER_MS);
+    println!("Measured mean interval:     {:.3}ms", mean);
+    println!("Measured min interval:      {:.3}ms", min);
+    println!("Measured max interval:      {:.3}ms", max);
+    println!("Measured std deviation:     {:.3}ms", stddev);
+    println!("Callbacks with gap > {}x expected ({:.3}ms): {} out of {} ({:.3}%)",
+        GAP_WARNING_MULTIPLIER, EXPECTED_BUFFER_MS * GAP_WARNING_MULTIPLIER,
+        large_gaps, total_callbacks, (large_gaps as f64 / total_callbacks as f64) * 100.0);
+
+    println!("\nNOTE: 'large gap' events are a proxy for real-time deadline problems,");
+    println!("based on callback timing alone - not a direct read of PipeWire's own");
+    println!("xrun/underrun counter, which cpal does not expose portably.");
 }

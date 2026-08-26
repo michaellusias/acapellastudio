@@ -115,12 +115,43 @@ Mean of the two runs: **15.88ms**. The two runs are consistent within a quarter-
 - A more precise measurement would require either an electrical loopback (a cable from output jack directly to a line-input, bypassing speaker/mic transducers entirely) or a purpose-built latency-test tool — neither available/set up yet.
 - **What this does tell us, honestly:** the *true* software-path latency is very likely somewhat lower than 15.88ms, since some of that figure is transducer response, not software — but we cannot currently say precisely how much lower. NFR-RT-002 as currently written (≤10ms) should be treated as "not yet demonstrated, plausibly close but not confirmed" rather than either "met" or "failed" outright.
 
-## 1.10 Action items carried forward
+## 1.11 CPU/dropout endurance test — real (30 seconds, idle passthrough)
 
-1. Measure real CPU usage while the 128-sample stream runs, and check for real underruns/dropouts over a longer test — not yet done.
-2. Test even smaller buffer sizes (e.g. 64, the low end of NFR-RT-001's target range) to see if latency drops further and whether it's still stable.
-3. Attempt to isolate transducer response from software-path latency — either via an electrical loopback cable (output jack directly to line input) if one becomes available, or by researching typical speaker/mic transducer response times to estimate a plausible split, clearly labeled as an estimate if we go that route.
-4. Revisit whether NFR-RT-002's ≤10ms target should be reconsidered given this real evidence, or whether the gap is likely explained by transducer response once isolated — this is a genuine open question, not resolved by this data alone.
+A 30-second test was run with both input and output streams active simultaneously at the 128-sample buffer, tracking callback timing gaps as a real-time-deadline proxy (since cpal doesn't portably expose PipeWire's own xrun counter), wrapped in `/usr/bin/time -v` for real CPU/memory measurement.
+
+**Real callback timing results (two runs):**
+```
+Run 1 (via cargo run --release, less clean since cargo itself was still attached):
+  Total callbacks: 11242, mean 2.667ms, min 1.920ms, max 5.649ms, stddev 0.049ms
+  Large gaps (>2x expected): 1 out of 11242 (0.009%)
+
+Run 2 (binary run directly, wrapped in /usr/bin/time -v):
+  Total callbacks: 11237, mean 2.667ms, min 1.881ms, max 4.611ms, stddev 0.040ms
+  Large gaps (>2x expected): 0 out of 11237 (0.000%)
+```
+
+**Real CPU/memory results (from `/usr/bin/time -v`, run 2):**
+```
+User time: 0.42s, System time: 0.27s, over 30.01s wall clock
+Percent of CPU this job got: 2%
+Maximum resident set size: 9500 KB (~9.3 MB)
+Voluntary context switches: 22559
+Involuntary context switches: 128
+Major page faults: 0, Minor page faults: 1101
+```
+
+**Honest interpretation:**
+- Callback timing is genuinely stable: mean interval matches the expected 2.667ms exactly, standard deviation under 0.05ms, and essentially zero large-gap events across both runs. This is a real positive signal for audio thread stability at this buffer size, on this hardware, under this specific test condition.
+- CPU usage (~2%) and memory footprint (~9.3MB) are both very light — comfortably within any reasonable budget for a laptop.
+- **This is an idle passthrough test — the callback does nothing but copy/discard audio.** It does NOT include actual pitch detection, pitch shifting, or any DSP processing running inside the real-time path. Real production code will add real CPU load inside this same constraint, which has not yet been tested. This baseline establishes that the audio I/O layer itself is stable and lightweight — it does not establish that the full processing pipeline will be.
+- The "large gap" metric is a timing-based proxy, not a direct read of an actual buffer underrun/overrun from the OS/backend. A large gap between callbacks strongly suggests something delayed the audio thread, but this test cannot distinguish "the callback itself ran late" from "an actual audible glitch occurred" with full certainty.
+
+## 1.12 Action items carried forward
+
+1. **Run this same endurance test again with actual DSP work inside the callback** (e.g. the YIN pitch detector from §2, adapted to run per-buffer instead of on a full pre-recorded signal) — this is the real test that matters, since the idle-passthrough result above doesn't tell us whether real processing load stays stable at this buffer size.
+2. Test even smaller buffer sizes (e.g. 64, the low end of NFR-RT-001's target range) to see if latency drops further and whether stability holds.
+3. Attempt to isolate transducer response from software-path latency in the round-trip figure (§1.9) — either via an electrical loopback cable if one becomes available, or by researching typical transducer response times to estimate a plausible split, clearly labeled as an estimate.
+4. Revisit whether NFR-RT-002's ≤10ms target should be reconsidered given the real evidence so far, or whether the gap is likely explained by transducer response once isolated — genuinely open, not resolved by this data alone.
 
 ---
 
@@ -252,7 +283,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 
 | Area | Status | Real evidence produced? |
 |---|---|---|
-| Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host, real round-trip acoustic loopback latency measured at correct 128-sample buffer: 15.76ms/16.00ms (two runs, consistent) — exceeds NFR-RT-002's ≤10ms target, but figure includes unseparated transducer response, not pure software latency. CPU/dropout measurement not yet done. |
+| Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host, round-trip latency ~15.88ms (unseparated from transducer response), and a real 30s idle-passthrough endurance test: ~2% CPU, ~9.3MB RAM, 0 large timing gaps/11237 callbacks. Real DSP-load endurance test not yet done. |
 | Pitch detection | Partial | **Yes** — real synthetic-signal test, real code, real numbers, real unexplained anomaly flagged |
 | Pitch shifting | Not started | No — needs real audio + PSOLA/vocoder implementation |
 | Key detection | Not started | No — needs real melody recordings |
