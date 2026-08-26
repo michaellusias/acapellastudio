@@ -18,7 +18,8 @@ fn main() {
     let cc = callback_count.clone();
     let sc = sample_count.clone();
 
-    let stream_config: cpal::StreamConfig = config.clone().into();
+    let mut stream_config: cpal::StreamConfig = config.clone().into();
+    stream_config.buffer_size = cpal::BufferSize::Fixed(128);
     let channels = stream_config.channels as u64;
 
     let stream = device.build_input_stream(

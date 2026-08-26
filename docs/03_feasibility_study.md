@@ -66,11 +66,26 @@ Implied sample rate: 47511.1 Hz (config says 48000)
 
 The ~1% gap between the implied sample rate (47511 Hz, computed from our own wall-clock timer) and the configured 48000 Hz is most likely measurement imprecision in the 5-second `std::thread::sleep` call (which commonly overshoots slightly due to OS scheduling), not an audio-path problem — this has not been investigated further since it's a minor, expected discrepancy in our own measurement code, not the audio data itself.
 
-## 1.5 Action items carried forward
+## 1.5 Explicit small buffer request (real, positive result)
 
-1. **Explicitly request `BufferSize::Fixed(128)` (or another small value) instead of relying on `BufferSize::Default`, and re-measure** — this is the direct next step, since we now have real evidence the default is too large for our latency target.
-2. Once a smaller buffer is confirmed working, measure real round-trip (input-to-output) latency, not just callback throughput — this still requires either a loopback test or an external measurement method, neither set up yet.
-3. Measure real CPU usage and check for real underruns/dropouts once a smaller buffer is in use — smaller buffers increase both CPU load and glitch risk, so this matters more once we're not using the safe 1024-sample default.
+Requesting `BufferSize::Fixed(128)` explicitly (instead of relying on the default) was tested for real:
+
+```
+Total callbacks: 1864
+Total sample-frames captured: 238592
+Average samples per callback: 128.0
+Implied sample rate: 47717.3 Hz (config says 48000)
+```
+
+**Real, positive finding:** the 128-sample buffer request was genuinely honored by PipeWire on this hardware — 1864 callbacks × 128 samples matches the total captured almost exactly, confirming the backend is actually delivering 128-sample buffers, not silently falling back to something larger. At 48kHz, 128 samples = **2.667ms per buffer** — this matches exactly what NFR-RT-004's own worked example predicted (128 samples ≈ 2.67ms), which is a good sign, though this is still buffer-fill timing, not true measured round-trip latency.
+
+The same ~1% implied-vs-configured sample rate gap persists at this smaller buffer size too (47717 Hz vs 48000 Hz), consistent with it being an artifact of our own `thread::sleep`-based timing rather than an audio-path issue, since the gap size didn't change meaningfully between the 1024-sample and 128-sample tests.
+
+## 1.6 Action items carried forward
+
+1. Measure real round-trip (input-to-output) latency, not just input-side buffer-fill timing — needs either a loopback test (feed input back to output and measure the delay) or an external measurement method. Not yet done.
+2. Measure real CPU usage while the 128-sample stream runs, and check for real underruns/dropouts over a longer test — smaller buffers increase both CPU load and glitch risk, neither measured yet.
+3. Test even smaller buffer sizes (e.g. 64, the low end of NFR-RT-001's target range) to see if they're also honored, or where the backend starts to refuse/fall back.
 
 ---
 
@@ -202,7 +217,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 
 | Area | Status | Real evidence produced? |
 |---|---|---|
-| Audio I/O feasibility | **In progress** | **Yes** — real toolchain built on actual hardware, native PipeWire host confirmed active, real device/config enumeration. Latency/CPU/dropout measurement not yet done. |
+| Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host confirmed, live stream running at a real 128-sample (2.667ms) buffer, honored by the backend. Round-trip latency/CPU/dropout measurement not yet done. |
 | Pitch detection | Partial | **Yes** — real synthetic-signal test, real code, real numbers, real unexplained anomaly flagged |
 | Pitch shifting | Not started | No — needs real audio + PSOLA/vocoder implementation |
 | Key detection | Not started | No — needs real melody recordings |
