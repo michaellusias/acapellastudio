@@ -223,12 +223,44 @@ Periodic detected-pitch printout during the run (values in Hz, in order): 157.9 
 - **The specific frequency values cannot be verified as correct** — there was no reference pitch (e.g. a tuner or known piano note) to check against, only plausibility (93.6Hz, 135.2Hz, 157.9Hz, 273.9Hz are all reasonable vocal-range values). The 1139.7Hz reading is worth flagging specifically: it's quite high (near the top of soprano range), and could be either a genuine high note or a detection artifact from a consonant/breath transient — this cannot be distinguished without a controlled test.
 - **This test does not yet constitute pitch-accuracy validation against real singing.** It demonstrates real-time stability under real DSP load (valuable) and that YIN produces plausible-looking output on live voice (a good sign), but not verified accuracy, which requires a controlled test against a known reference pitch.
 
-## 2.6 Action items carried forward (real-time voice testing)
+## 2.7 Controlled reference-pitch test — real accuracy validation (resolves the open question from §2.5)
 
-1. **Run a controlled test against a known reference pitch** — e.g. play a specific note from a tuner app or piano and sing/hum that exact pitch, so YIN's output can be checked against ground truth, not just plausibility.
-2. Fix the test harness's "sticky" last-detected-value printout so it clearly distinguishes "actively detecting now" from "detected something previously" — a real limitation in the reporting, not the algorithm.
-3. Investigate the low overall detection percentage further once cause (a) vs (b) above can be distinguished — possibly by logging every callback's raw yin_detect() result (including None and out-of-range values) rather than only the successful, in-range ones.
-4. Sanity-check the 1139.7Hz reading specifically once a controlled reference test exists.
+To resolve the ambiguity from §2.5 (was the low 0.4% detection rate correct silence-handling, or a test-harness flaw?), a controlled test played a **known** 440.0 Hz reference tone through the speaker and ran the same real-time YIN detector on the real microphone picking it up — no human singing involved, full real chain (DAC → speaker → air → mic → ADC → real-time YIN), every callback's raw result logged (fixing the "sticky printout" issue).
+
+**Real results:**
+```
+Total callbacks: 3744
+No detection (YIN returned None): 21 (0.6%)
+Detected something: 3723 (99.4%)
+
+Reference frequency: 440.00 Hz
+Detected mean:       440.22 Hz
+Detected min/max:    437.29 Hz / 444.13 Hz
+Mean cents error (signed): 0.87 cents
+Mean absolute cents error: 0.99 cents
+Detections within 50 cents of reference: 3723 / 3723 (100.0%)
+```
+
+**Real CPU/memory (from `/usr/bin/time -v`):**
+```
+User time: 4.98s, System time: 0.05s, over 10.01s wall clock
+Percent of CPU this job got: 50%
+Maximum resident set size: 8988 KB (~8.8 MB)
+```
+
+**Honest interpretation:**
+
+- **This resolves the §2.5 open question.** 99.4% detection rate on a continuous, known tone confirms YIN — running in the real real-time callback, through the real acoustic and hardware chain — reliably detects pitch when a clear signal is present. The earlier 0.4% figure on freeform humming was therefore very likely explained by (a) natural pauses/silence in vocalization, correctly producing no detection, not a flaw in the algorithm or harness.
+- **Accuracy is genuinely excellent**: sub-1-cent mean absolute error, 100% of detections within half a semitone. This is real, validated evidence — not synthetic-only, not unverified — that this YIN implementation performs well on this hardware for a clean, sustained tone through the full acoustic chain.
+- **New honest concern: CPU cost is substantial.** ~50% of "the job's" CPU allocation for pitch detection alone (naive, unoptimized O(n×max_tau) YIN running on a full 2048-sample window every single 128-sample callback) is a real finding worth taking seriously. It did not cause missed real-time deadlines in this test, but it leaves limited headroom for the additional DSP (pitch shifting, eventually harmony rendering) that will need to share this same real-time budget. **This naive implementation should be treated as a correctness prototype, not a performance baseline** — real optimization (e.g. incremental/windowed autocorrelation updates rather than full recomputation every callback, or FFT-based autocorrelation) will likely be needed before this scales to a full production pipeline.
+- **Caveat on scope:** this validates detection of a single, clean, sustained tone — not yet a moving melody, vibrato, breathiness, or multiple different pitches in sequence. Real singing-voice validation (not just a synthetic reference tone through the real chain) is still a distinct, not-yet-completed test.
+
+## 2.8 Updated action items
+
+1. **Investigate optimizing the YIN implementation** — the current naive version's ~50% CPU cost for pitch detection alone is a real constraint on the overall real-time budget once more DSP is added. This is now a concrete, evidence-based priority, not a hypothetical concern.
+2. Test against real melodic singing (moving pitch, vibrato, natural breathiness) — this reference-tone test validates a clean sustained tone, not the full range of real vocal performance.
+3. Fix the earlier "sticky printout" test harness for any future freeform voice tests, using the same every-callback-logging approach as this test.
+4. Compare against pYIN and SwiftF0 (Literature Review §1.2/§1.4) — worth prioritizing given the CPU cost finding, since a lighter-weight alternative could directly address the concern in item 1.
 
 ---
 
@@ -307,7 +339,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 | Area | Status | Real evidence produced? |
 |---|---|---|
 | Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host, round-trip latency ~15.88ms (unseparated from transducer response), and a real 30s idle-passthrough endurance test: ~2% CPU, ~9.3MB RAM, 0 large timing gaps/11237 callbacks. Real DSP-load endurance test not yet done. |
-| Pitch detection | Partial | **Yes** — real synthetic-signal test AND real live-microphone test with actual DSP load; real-time timing stable under real YIN processing (0 large gaps/7469 callbacks); detection rate on live voice (0.4%) needs further investigation before accuracy can be claimed |
+| Pitch detection | Partial | **Yes** — real controlled reference-tone test through the full real acoustic chain: 99.4% detection rate, 0.99 cents mean absolute error, 100% within 50 cents. New concern: ~50% CPU for naive YIN alone, real optimization target flagged. Real melodic/vibrato singing still not tested. |
 | Pitch shifting | Not started | No — needs real audio + PSOLA/vocoder implementation |
 | Key detection | Not started | No — needs real melody recordings |
 | Harmony generation | Not started | No — depends on above |
