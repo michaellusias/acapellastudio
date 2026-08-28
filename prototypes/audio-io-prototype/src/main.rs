@@ -1,25 +1,17 @@
-// Controlled reference-pitch accuracy test — AcapellaStudio Phase 3 Feasibility Study
+// Real-time YIN pitch detection on live microphone input
+// AcapellaStudio Phase 3 Feasibility Study
 // Run on Michael's actual reference hardware (AMD Ryzen 7 8840HS, Kubuntu, PipeWire 1.6.2).
-//
-// METHOD: play a KNOWN reference tone (440.0 Hz, concert A4) through the
-// speaker, run the real YIN detector (same algorithm as before, sliding
-// 2048-sample ring buffer) on the real microphone picking it up, and
-// compare detected frequency against the known 440.0 Hz ground truth.
-// This tests the full real chain (DAC -> speaker -> air -> mic -> ADC ->
-// real-time YIN) without relying on human vocal pitch accuracy.
-//
-// Every callback's raw result (including "no detection" and out-of-range
-// values) is logged, fixing the "sticky printout" issue from the previous
-// test - this gives a true, honest detection rate, not a misleading one.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const RING_SIZE: usize = 2048;
 const YIN_THRESHOLD: f64 = 0.10;
-const TEST_DURATION_SECS: u64 = 10;
-const REFERENCE_FREQ: f64 = 440.0; // concert A4, known ground truth
+const TEST_DURATION_SECS: u64 = 20;
+const EXPECTED_BUFFER_MS: f64 = 128.0 / 48000.0 * 1000.0;
+const GAP_WARNING_MULTIPLIER: f64 = 2.0;
 
 fn difference_function(buffer: &[f64], max_tau: usize) -> Vec<f64> {
     let mut d = vec![0.0; max_tau];
@@ -86,104 +78,104 @@ fn yin_detect(buffer: &[f64], sample_rate: f64, threshold: f64) -> Option<f64> {
     Some(sample_rate / refined_tau)
 }
 
-fn cents_error(true_freq: f64, detected_freq: f64) -> f64 {
-    1200.0 * (detected_freq / true_freq).log2()
-}
-
 fn main() {
     let host = cpal::default_host();
     let input_device = host.default_input_device().expect("no input device");
-    let output_device = host.default_output_device().expect("no output device");
-
     let mut input_config: cpal::StreamConfig = input_device.default_input_config().unwrap().into();
-    let mut output_config: cpal::StreamConfig = output_device.default_output_config().unwrap().into();
     input_config.buffer_size = cpal::BufferSize::Fixed(128);
-    output_config.buffer_size = cpal::BufferSize::Fixed(128);
     let sample_rate = input_config.sample_rate as f64;
-    let in_channels = input_config.channels as usize;
-    let out_channels = output_config.channels as usize;
+    let channels = input_config.channels as usize;
 
-    println!("Playing a KNOWN {:.1} Hz reference tone through your speakers for {}s.", REFERENCE_FREQ, TEST_DURATION_SECS);
-    println!("Real-time YIN will detect it via the real microphone. No singing needed.\n");
+    println!("Running {}s real-time YIN test on LIVE MICROPHONE INPUT.", TEST_DURATION_SECS);
+    println!("Sing or hum something! Detected pitch will print periodically.\n");
+    println!("(Wrap this binary in `/usr/bin/time -v` for real CPU/memory numbers)\n");
 
-    // Output: continuous sine wave at REFERENCE_FREQ
-    let mut phase: f64 = 0.0;
-    let out_sample_rate = output_config.sample_rate as f64;
-    let output_stream = output_device.build_output_stream(
-        output_config.clone(),
-        move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-            for frame in data.chunks_mut(out_channels) {
-                let sample = (0.5 * (2.0 * std::f64::consts::PI * phase).sin()) as f32;
-                for s in frame.iter_mut() { *s = sample; }
-                phase += REFERENCE_FREQ / out_sample_rate;
-                if phase >= 1.0 { phase -= 1.0; }
-            }
-        },
-        move |err| eprintln!("Output stream error: {}", err),
-        None,
-    ).expect("failed to build output stream");
-
-    // Input: real YIN detection, logging EVERY callback's raw result
     let ring: Arc<Mutex<Vec<f64>>> = Arc::new(Mutex::new(vec![0.0; RING_SIZE]));
-    let results: Arc<Mutex<Vec<Option<f64>>>> = Arc::new(Mutex::new(Vec::with_capacity(5000)));
-    let ring_cb = ring.clone();
-    let results_cb = results.clone();
+    let callback_count = Arc::new(AtomicU64::new(0));
+    let large_gap_count = Arc::new(AtomicU64::new(0));
+    let last_callback_time: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
+    let gap_samples: Arc<Mutex<Vec<f64>>> = Arc::new(Mutex::new(Vec::with_capacity(10000)));
+    let last_detected: Arc<Mutex<Option<f64>>> = Arc::new(Mutex::new(None));
+    let detect_count = Arc::new(AtomicU64::new(0));
 
-    let input_stream = input_device.build_input_stream(
+    let ring_cb = ring.clone();
+    let cc = callback_count.clone();
+    let lgc = large_gap_count.clone();
+    let lct = last_callback_time.clone();
+    let gs = gap_samples.clone();
+    let ld = last_detected.clone();
+    let dc = detect_count.clone();
+
+    let stream = input_device.build_input_stream(
         input_config.clone(),
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
+            let callback_start = Instant::now();
+
+            cc.fetch_add(1, Ordering::Relaxed);
+            {
+                let mut last = lct.lock().unwrap();
+                if let Some(prev) = *last {
+                    let gap_ms = callback_start.duration_since(prev).as_secs_f64() * 1000.0;
+                    gs.lock().unwrap().push(gap_ms);
+                    if gap_ms > EXPECTED_BUFFER_MS * GAP_WARNING_MULTIPLIER {
+                        lgc.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                *last = Some(callback_start);
+            }
+
             let mut buf = ring_cb.lock().unwrap();
-            let n_new = data.len() / in_channels;
+            let n_new = data.len() / channels;
             let shift = n_new.min(RING_SIZE);
             buf.copy_within(shift.., 0);
             let start_idx = RING_SIZE - shift;
-            for (i, frame) in data.chunks(in_channels).enumerate().take(shift) {
-                let mono: f32 = frame.iter().sum::<f32>() / in_channels as f32;
+            for (i, frame) in data.chunks(channels).enumerate().take(shift) {
+                let mono: f32 = frame.iter().sum::<f32>() / channels as f32;
                 buf[start_idx + i] = mono as f64;
             }
-            let result = yin_detect(&buf, sample_rate, YIN_THRESHOLD);
-            results_cb.lock().unwrap().push(result);
+
+            if let Some(freq) = yin_detect(&buf, sample_rate, YIN_THRESHOLD) {
+                if freq > 60.0 && freq < 1200.0 {
+                    *ld.lock().unwrap() = Some(freq);
+                    dc.fetch_add(1, Ordering::Relaxed);
+                }
+            }
         },
         move |err| eprintln!("Input stream error: {}", err),
         None,
     ).expect("failed to build input stream");
 
-    output_stream.play().expect("failed to start output stream");
-    input_stream.play().expect("failed to start input stream");
+    stream.play().expect("failed to start input stream");
 
-    std::thread::sleep(Duration::from_secs(TEST_DURATION_SECS));
-
-    drop(output_stream);
-    drop(input_stream);
-
-    let all_results = results.lock().unwrap();
-    let total = all_results.len();
-    let no_detection = all_results.iter().filter(|r| r.is_none()).count();
-    let detected: Vec<f64> = all_results.iter().filter_map(|r| *r).collect();
-
-    println!("=== RESULTS ===");
-    println!("Total callbacks: {}", total);
-    println!("No detection (YIN returned None): {} ({:.1}%)", no_detection, no_detection as f64 / total as f64 * 100.0);
-    println!("Detected something: {} ({:.1}%)", detected.len(), detected.len() as f64 / total as f64 * 100.0);
-
-    if !detected.is_empty() {
-        let mean: f64 = detected.iter().sum::<f64>() / detected.len() as f64;
-        let min = detected.iter().cloned().fold(f64::MAX, f64::min);
-        let max = detected.iter().cloned().fold(f64::MIN, f64::max);
-        let cents_errors: Vec<f64> = detected.iter().map(|f| cents_error(REFERENCE_FREQ, *f)).collect();
-        let mean_cents_error: f64 = cents_errors.iter().sum::<f64>() / cents_errors.len() as f64;
-        let mean_abs_cents_error: f64 = cents_errors.iter().map(|e| e.abs()).sum::<f64>() / cents_errors.len() as f64;
-
-        // Count how many detections are "close" (within 50 cents = half a semitone) to the reference
-        let close_count = detected.iter().filter(|f| cents_error(REFERENCE_FREQ, **f).abs() < 50.0).count();
-
-        println!("\nReference frequency: {:.2} Hz", REFERENCE_FREQ);
-        println!("Detected mean:       {:.2} Hz", mean);
-        println!("Detected min/max:    {:.2} Hz / {:.2} Hz", min, max);
-        println!("Mean cents error (signed): {:.2} cents", mean_cents_error);
-        println!("Mean absolute cents error: {:.2} cents", mean_abs_cents_error);
-        println!("Detections within 50 cents of reference: {} / {} ({:.1}%)", close_count, detected.len(), close_count as f64 / detected.len() as f64 * 100.0);
-    } else {
-        println!("\nNo detections at all - something is wrong with the setup (volume, mic gain, etc).");
+    let start = Instant::now();
+    while start.elapsed().as_secs() < TEST_DURATION_SECS {
+        std::thread::sleep(Duration::from_millis(500));
+        if let Some(freq) = *last_detected.lock().unwrap() {
+            println!("  detected: {:.1} Hz", freq);
+        } else {
+            println!("  (no pitch detected yet)");
+        }
     }
+
+    drop(stream);
+
+    let total_callbacks = callback_count.load(Ordering::Relaxed);
+    let large_gaps = large_gap_count.load(Ordering::Relaxed);
+    let detections = detect_count.load(Ordering::Relaxed);
+    let gaps = gap_samples.lock().unwrap();
+
+    let mean: f64 = gaps.iter().sum::<f64>() / gaps.len() as f64;
+    let max: f64 = gaps.iter().cloned().fold(f64::MIN, f64::max);
+    let stddev = (gaps.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / gaps.len() as f64).sqrt();
+
+    println!("\n=== RESULTS ===");
+    println!("Total callbacks: {}", total_callbacks);
+    println!("Callbacks with a plausible pitch detected: {} ({:.1}%)", detections, detections as f64 / total_callbacks as f64 * 100.0);
+    println!("Measured mean interval: {:.3}ms (expected {:.3}ms)", mean, EXPECTED_BUFFER_MS);
+    println!("Measured max interval:  {:.3}ms", max);
+    println!("Measured std deviation: {:.3}ms", stddev);
+    println!("Large gaps (>{}x expected): {} out of {} ({:.3}%)",
+        GAP_WARNING_MULTIPLIER, large_gaps, total_callbacks, large_gaps as f64 / total_callbacks as f64 * 100.0);
+    println!("\nNOTE: YIN ran on a full 2048-sample rolling window EVERY callback -");
+    println!("this measures real DSP load, not an idle passthrough.");
 }
