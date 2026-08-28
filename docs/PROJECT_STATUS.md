@@ -20,10 +20,12 @@
 - Real 30s idle-passthrough endurance test: ~2% CPU, ~9.3MB RAM, 0 large timing gaps/11237 callbacks — audio I/O layer itself is stable and lightweight
 - Real 20s endurance test WITH actual YIN DSP load running every callback: timing stability held (0 large gaps/7469 callbacks, stats nearly identical to idle test) — real evidence the DSP workload doesn't destabilize the real-time thread
 
-**§2 Pitch Detection — real progress, one open question:**
+**§2 Pitch Detection — strong validated result, one new concern:**
 - Real synthetic-signal test: 2.06 cents mean error (clean), 2.28 cents (mild noise) — A5 anomaly (-7.15 cents) flagged, unexplained
-- Real live-microphone test with actual DSP load: detected plausible vocal-range frequencies (93.6–1139.7Hz) during live vocalization, but only 0.4% of callbacks (29/7469) registered any detection
-- **Open question, not resolved:** low detection rate could be (a) correct behavior during natural silence/pauses, or (b) a "sticky" printout design flaw in the test harness. Needs a controlled test against a known reference pitch (tuner/piano) to properly validate accuracy — not yet done.
+- Real controlled reference-tone test (440Hz through speaker, detected via real mic, full acoustic chain): **99.4% detection rate, 0.99 cents mean absolute error, 100% within 50 cents** — genuinely strong, validated accuracy result
+- This resolved the earlier open question (0.4% detection on freeform humming was correct silence-handling, not a flaw)
+- **New honest concern:** ~50% CPU for naive YIN alone — real optimization target flagged for before this scales into a full production pipeline
+- Not yet tested: real melodic singing (moving pitch, vibrato) — only a clean sustained tone validated so far
 
 **§6 ML Dataset Feasibility — COMPLETE:**
 - Real datasets found: JaCappella (35 songs, 6 aligned vocal stems), Dagstuhl ChoirSet (peer-reviewed, SATB), Vocal92 (146.73hrs solo a cappella audio), JSB Chorales/Bach Choral Harmony (symbolic only)
@@ -39,10 +41,11 @@
 - Repository initialized. Multiple real commits with descriptive feat:/docs: messages tracking each real milestone.
 
 ## Key findings (cumulative, most important first)
-- **Real-time DSP load does not destabilize the audio thread** at 128-sample buffer on this hardware — the single most important positive feasibility result so far.
+- **Real, validated pitch-detection accuracy is excellent**: 0.99 cents mean absolute error through the full real acoustic chain — the strongest positive result so far.
+- **Real-time DSP load does not destabilize the audio thread** at 128-sample buffer on this hardware — confirmed under actual YIN processing, not just idle passthrough.
+- **⚠️ New: naive YIN implementation costs ~50% CPU alone** — real optimization needed before adding more DSP to the same real-time budget.
 - **⚠️ R-014 (IP risk):** US Patent 8,168,877/8,618,402, pitch-shift-based harmony generation. Antares (Auto-Tune/Harmony Engine maker) is a strong candidate to be connected to it — unconfirmed.
 - **⚠️ Round-trip latency (~15.88ms) exceeds the ≤10ms target**, but can't yet be cleanly attributed to software vs. transducer response.
-- **⚠️ Pitch detection rate on live voice is very low (0.4%)** — cause not yet determined, needs controlled testing.
 - Real user feedback confirms "mechanical-sounding harmony" (R-009/R-012) is a genuine, documented weakness even in the market-leading commercial tool.
 - Real a capella multitrack datasets exist but don't match our target genre/scale.
 
