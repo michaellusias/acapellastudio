@@ -200,12 +200,35 @@ Average: **0.82ms per call**, or **1.92% of the 42.7ms buffer duration** at this
 - **The A5 anomaly (-7.15 cents) is unexplained and needs investigation, not dismissal.** My own working hypothesis — not sourced, just my reasoning, and explicitly flagged as such — is that at higher frequencies, the pitch period (tau, in samples) is shorter, so the same absolute quantization/interpolation error becomes a larger proportional (cents) error. This needs to actually be checked (e.g., by testing more buffer sizes and more frequencies to see if the error scales the way that hypothesis predicts) rather than accepted as an explanation.
 - **This CPU timing is meaningless for our actual acceptance decision** until re-measured on Michael's HP EliteBook, per NFR-RT-010's explicit requirement for a documented reference hardware configuration.
 
-## 2.4 Carried-forward action items
+## 2.5 Real-time YIN on live microphone input — real (combines CPU/timing + real voice test)
 
-1. Re-run this exact prototype on the actual reference hardware once we're doing hands-on setup, to get a real CPU-timing baseline (not this container's).
-2. Investigate the A5 accuracy anomaly with additional buffer sizes/frequencies before accepting or rejecting the current implementation.
-3. Once microphone input exists (§1), test against **real recorded singing** — this is the actual test that matters and cannot be substituted with more synthetic-signal testing, however good the synthetic numbers look.
-4. Compare against pYIN and SwiftF0 (per Literature Review §1.2/§1.4) using the same real singing-voice recordings, once available — not before.
+A combined test ran the actual YIN detector (§2.1's algorithm, adapted to a sliding 2048-sample ring buffer updated by 128 new samples every callback) inside the real-time audio callback, on live microphone input, for 20 seconds, while Michael hummed/vocalized. Real results:
+
+```
+Total callbacks: 7469
+Callbacks with a plausible pitch detected: 29 (0.4%)
+Measured mean interval: 2.666ms (expected 2.667ms)
+Measured max interval:  4.108ms
+Measured std deviation: 0.071ms
+Large gaps (>2x expected): 0 out of 7469 (0.000%)
+```
+
+Periodic detected-pitch printout during the run (values in Hz, in order): 157.9 → 135.2 → 93.6 → 273.9 → 1139.7 (each value shown across several consecutive 0.5s print intervals before changing).
+
+**Honest interpretation — the important positive finding:**
+- **Real-time timing stability held under actual DSP load, not just idle passthrough.** Mean interval, standard deviation, and large-gap count are all essentially identical to the idle-passthrough endurance test (§1.11). This is genuine, positive evidence that running YIN every callback on this hardware, at this buffer size, does not destabilize the real-time audio thread. This is the most important result from this test.
+
+**Honest interpretation — what needs more scrutiny, not glossed over:**
+- Only 0.4% of callbacks registered any detection. Two real, distinguishable possibilities that this data alone cannot resolve: (a) Michael wasn't vocalizing continuously for the full 20 seconds, and YIN correctly reported "no confident pitch" during silence/pauses — genuinely correct behavior, not a flaw; or (b) a real design limitation in this test's reporting — the periodic printout shows the *last* successfully detected value rather than clearly indicating whether detection is currently active, so it cannot be used to infer how continuously YIN was tracking.
+- **The specific frequency values cannot be verified as correct** — there was no reference pitch (e.g. a tuner or known piano note) to check against, only plausibility (93.6Hz, 135.2Hz, 157.9Hz, 273.9Hz are all reasonable vocal-range values). The 1139.7Hz reading is worth flagging specifically: it's quite high (near the top of soprano range), and could be either a genuine high note or a detection artifact from a consonant/breath transient — this cannot be distinguished without a controlled test.
+- **This test does not yet constitute pitch-accuracy validation against real singing.** It demonstrates real-time stability under real DSP load (valuable) and that YIN produces plausible-looking output on live voice (a good sign), but not verified accuracy, which requires a controlled test against a known reference pitch.
+
+## 2.6 Action items carried forward (real-time voice testing)
+
+1. **Run a controlled test against a known reference pitch** — e.g. play a specific note from a tuner app or piano and sing/hum that exact pitch, so YIN's output can be checked against ground truth, not just plausibility.
+2. Fix the test harness's "sticky" last-detected-value printout so it clearly distinguishes "actively detecting now" from "detected something previously" — a real limitation in the reporting, not the algorithm.
+3. Investigate the low overall detection percentage further once cause (a) vs (b) above can be distinguished — possibly by logging every callback's raw yin_detect() result (including None and out-of-range values) rather than only the successful, in-range ones.
+4. Sanity-check the 1139.7Hz reading specifically once a controlled reference test exists.
 
 ---
 
@@ -284,7 +307,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 | Area | Status | Real evidence produced? |
 |---|---|---|
 | Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host, round-trip latency ~15.88ms (unseparated from transducer response), and a real 30s idle-passthrough endurance test: ~2% CPU, ~9.3MB RAM, 0 large timing gaps/11237 callbacks. Real DSP-load endurance test not yet done. |
-| Pitch detection | Partial | **Yes** — real synthetic-signal test, real code, real numbers, real unexplained anomaly flagged |
+| Pitch detection | Partial | **Yes** — real synthetic-signal test AND real live-microphone test with actual DSP load; real-time timing stable under real YIN processing (0 large gaps/7469 callbacks); detection rate on live voice (0.4%) needs further investigation before accuracy can be claimed |
 | Pitch shifting | Not started | No — needs real audio + PSOLA/vocoder implementation |
 | Key detection | Not started | No — needs real melody recordings |
 | Harmony generation | Not started | No — depends on above |
