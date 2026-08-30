@@ -328,11 +328,15 @@ Minor page faults: 479343 (vs. 1101 in the idle passthrough test — see interpr
 - **The much more likely explanation is a genuine difference in what was actually vocalized between the two separate test sessions** — most plausibly, more continuous singing/humming during this run than during the earlier naive-YIN test, rather than any property of the algorithm. This is a real confound in the experimental design (two separate live-voice sessions are not a controlled comparison of "same input, different algorithm"), and it should be treated as such rather than credited to the optimization.
 - The detected frequency sequence this run (clustering around 270–290Hz for an extended stretch, a shift to ~207–211Hz, then back to ~275–287Hz, one 326.8Hz outlier) is consistent with sustained, continuous vocalization — supporting the "sang more continuously this time" explanation over an algorithmic one. As before, these values are plausible vocal-range frequencies but not verified against a ground-truth reference.
 
-## 2.12 Action items carried forward
+## 2.12 Informal subjective impression (Michael's own assessment, not a controlled measurement)
+
+Michael reports singing a low-to-high glide during informal testing and finding the detected pitch tracking to be accurate by ear. This is recorded here as a real, useful qualitative signal — but it is explicitly **not** a controlled measurement (no reference pitch, no logged/verifiable frequency sequence, subjective by-ear judgment) and should not be treated as resolving the outstanding action item for a controlled melodic/vibrato accuracy test (§2.13, item 4 area). It's a positive informal indicator worth having, alongside, not instead of, the more rigorous test still queued.
+
+## 2.13 Action items carried forward
 
 1. **Cache the FFT plan outside the real-time callback instead of creating one per call** — a genuine, identified optimization opportunity, likely to close some of the gap between the sandbox's 3.79x projection and the real ~1.79x measured improvement.
 2. Re-measure CPU usage after the plan-caching fix, on the same reference hardware, before treating 28% as a final number.
-3. **Do not use the 0.4%→94% detection-rate change as evidof the optimization's effect on accuracy** — it is confounded by differing vocalization patterns between two separate test sessions, not a controlled comparison. A real controlled comparison would require running both versions back-to-back on either the same recorded audio file or the same live session (not two separate freeform singing sessions).
+3. **Do not use the 0.4%→94% detection-rate change as evidence of the optimization's effect on accuracy** — it is confounded by differing vocalization patterns between two separate test sessions, not a controlled comparison. A real controlled comparison would require running both versions back-to-back on either the same recorded audio file or the same live session (not two separate freeform singing sessions).
 4. The controlled reference-tone accuracy test (§2.7) should still be re-run with the FFT-based version for a real, non-confounded accuracy comparison, since that test uses a fixed, repeatable reference tone rather than freeform live singing.
 
 ---
