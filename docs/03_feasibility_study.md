@@ -300,6 +300,41 @@ Speedup: 3.79x
 1. **Re-run the live-microphone real-time test (§2.5) with the FFT-based difference function substituted for the naive one, wrapped in `/usr/bin/time -v`, on the actual reference hardware** — this is the real test that resolves whether the projected CPU improvement holds.
 2. If the optimization holds up on real hardware, re-run the controlled reference-tone accuracy test (§2.7) with the FFT-based version too, to confirm accuracy is preserved end-to-end, not just in the isolated difference-function comparison above.
 
+## 2.11 Real hardware re-test — FFT-based YIN on live microphone input (real, with an important confound flagged)
+
+The FFT-based YIN was substituted into the live-microphone real-time test (§2.5) and re-run on the actual reference hardware, wrapped in `/usr/bin/time -v`. Real results:
+
+```
+Total callbacks: 7476
+Callbacks with a plausible pitch detected: 7029 (94.0%)
+Measured mean interval: 2.667ms (expected 2.667ms)
+Measured max interval:  3.578ms
+Measured std deviation: 0.161ms
+Large gaps (>2x expected): 0 out of 7476 (0.000%)
+
+User time: 3.48s, System time: 2.15s, over 20.02s wall clock
+Percent of CPU this job got: 28%
+Maximum resident set size: 9592 KB (~9.4 MB)
+Minor page faults: 479343 (vs. 1101 in the idle passthrough test — see interpretation below)
+```
+
+**Honest interpretation — real, genuine findings:**
+- **CPU usage dropped from ~50% (naive) to 28% (FFT-based) — a real ~1.79x reduction.** This is smaller than the sandbox's isolated 3.79x speedup projection. The gap is very likely explained, at least partly, by a known inefficiency already flagged in the code's own comments: a fresh `FftPlanner` is created inside the callback on every single invocation, rather than being created once and reused. Planning overhead is a real, measurable cost in FFT libraries; this should be fixed and re-measured before treating 28% as the final achievable number.
+- **Timing remained stable**: mean interval still matches the expected 2.667ms exactly, and zero large gaps occurred — the optimization did not introduce real-time instability, even though standard deviation increased somewhat (0.161ms vs. the naive version's 0.071ms), consistent with the added per-callback planning overhead.
+- Minor page faults rose sharply (479,343 vs. 1,101 in the earlier idle test) — consistent with the per-callback FFT planner allocating memory repeatedly, reinforcing that plan-caching is a real, worthwhile fix, not just a theoretical concern.
+
+**Honest interpretation — a real confound that must not be overclaimed:**
+- **Detection rate jumped from 0.4% (naive-YIN live test, §2.5) to 94.0% (this test).** This must **not** be attributed to the FFT optimization. §2.9 already proved the naive and FFT-based difference functions produce mathematically identical results (differences at the 10⁻¹² floating-point-noise level, including reproducing the same A5 anomaly). If the underlying math is proven identical, detection rate on the same audio input cannot legitimately differ between the two implementations — only speed should differ.
+- **The much more likely explanation is a genuine difference in what was actually vocalized between the two separate test sessions** — most plausibly, more continuous singing/humming during this run than during the earlier naive-YIN test, rather than any property of the algorithm. This is a real confound in the experimental design (two separate live-voice sessions are not a controlled comparison of "same input, different algorithm"), and it should be treated as such rather than credited to the optimization.
+- The detected frequency sequence this run (clustering around 270–290Hz for an extended stretch, a shift to ~207–211Hz, then back to ~275–287Hz, one 326.8Hz outlier) is consistent with sustained, continuous vocalization — supporting the "sang more continuously this time" explanation over an algorithmic one. As before, these values are plausible vocal-range frequencies but not verified against a ground-truth reference.
+
+## 2.12 Action items carried forward
+
+1. **Cache the FFT plan outside the real-time callback instead of creating one per call** — a genuine, identified optimization opportunity, likely to close some of the gap between the sandbox's 3.79x projection and the real ~1.79x measured improvement.
+2. Re-measure CPU usage after the plan-caching fix, on the same reference hardware, before treating 28% as a final number.
+3. **Do not use the 0.4%→94% detection-rate change as evidof the optimization's effect on accuracy** — it is confounded by differing vocalization patterns between two separate test sessions, not a controlled comparison. A real controlled comparison would require running both versions back-to-back on either the same recorded audio file or the same live session (not two separate freeform singing sessions).
+4. The controlled reference-tone accuracy test (§2.7) should still be re-run with the FFT-based version for a real, non-confounded accuracy comparison, since that test uses a fixed, repeatable reference tone rather than freeform live singing.
+
 ---
 
 # 3. Pitch-Shifting Feasibility
@@ -377,7 +412,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 | Area | Status | Real evidence produced? |
 |---|---|---|
 | Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host, round-trip latency ~15.88ms (unseparated from transducer response), and a real 30s idle-passthrough endurance test: ~2% CPU, ~9.3MB RAM, 0 large timing gaps/11237 callbacks. Real DSP-load endurance test not yet done. |
-| Pitch detection | Partial | **Yes** — real controlled reference-tone test through the full real acoustic chain: 99.4% detection rate, 0.99 cents mean absolute error, 100% within 50 cents. New concern: ~50% CPU for naive YIN alone, real optimization target flagged. Real melodic/vibrato singing still not tested. |
+| Pitch detection | Partial | **Yes** — reference-tone test: 99.4% detection, 0.99 cents error. FFT-based optimization verified mathematically identical to naive YIN, then real-tested on hardware: CPU dropped ~50%→28% (real, though smaller than sandbox's 3.79x projection — plan-caching fix identified as the likely gap). Detection-rate jump in the live-mic re-test (0.4%→94%) explicitly NOT attributed to the algorithm — flagged as a session-to-session vocalization confound, not an accuracy claim. Real melodic/vibrato singing accuracy still not controlled-tested. |
 | Pitch shifting | Not started | No — needs real audio + PSOLA/vocoder implementation |
 | Key detection | Not started | No — needs real melody recordings |
 | Harmony generation | Not started | No — depends on above |
