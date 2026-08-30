@@ -257,10 +257,48 @@ Maximum resident set size: 8988 KB (~8.8 MB)
 
 ## 2.8 Updated action items
 
-1. **Investigate optimizing the YIN implementation** — the current naive version's ~50% CPU cost for pitch detection alone is a real constraint on the overall real-time budget once more DSP is added. This is now a concrete, evidence-based priority, not a hypothetical concern.
+1. ~~Investigate optimizing the YIN implementation~~ **In progress — see §2.9.**
 2. Test against real melodic singing (moving pitch, vibrato, natural breathiness) — this reference-tone test validates a clean sustained tone, not the full range of real vocal performance.
 3. Fix the earlier "sticky printout" test harness for any future freeform voice tests, using the same every-callback-logging approach as this test.
 4. Compare against pYIN and SwiftF0 (Literature Review §1.2/§1.4) — worth prioritizing given the CPU cost finding, since a lighter-weight alternative could directly address the concern in item 1.
+
+## 2.9 YIN optimization — FFT-based autocorrelation (real, verified in sandbox, pending hardware re-test)
+
+**Confirmed real precedent first:** aubio's "yinfast" method is documented (checked directly in this session, not assumed) as producing results **identical** to plain YIN while reducing cost from O(n²) to O(n log n) via FFT-based autocorrelation — distinct from "yinfft," a different, non-identical tapered/spectral variant per Brossier's 2006 PhD thesis. We implemented the identical-results approach.
+
+**Method (standard DSP, not novel):** the squared-difference function decomposes as `d(tau) = A + B(tau) - 2*C(tau)`, where `A` is a constant, `B(tau)` is a windowed sum of squares computable in O(1) per tau via prefix sums, and `C(tau)` (cross-correlation) — the genuinely expensive term — is computed for **all** tau simultaneously via one FFT-based correlation pass, using the `rustfft` crate.
+
+**Real correctness verification (run in the sandbox, not assumed):** the FFT-based implementation was tested against the exact same naive implementation already validated against real hardware, on the same six test frequencies (E2 through C6):
+
+```
+Freq    82.41Hz | naive=82.4421... fft=82.4421... | max diff=5.9e-12 | MATCH
+Freq   110.00Hz | naive=110.0459... fft=110.0459... | max diff=5.7e-12 | MATCH
+Freq   220.00Hz | naive=220.0926... fft=220.0926... | max diff=5.7e-12 | MATCH
+Freq   440.00Hz | naive=440.1921... fft=440.1921... | max diff=5.2e-12 | MATCH
+Freq   880.00Hz | naive=876.3736... fft=876.3736... | max diff=7.0e-12 | MATCH
+Freq  1046.50Hz | naive=1045.0962... fft=1045.0962... | max diff=5.2e-12 | MATCH
+
+Overall correctness: ALL MATCH
+```
+
+Differences are at the 10⁻¹² level — floating-point noise, not a real discrepancy. Notably, **the FFT version reproduces the exact same A5 anomaly** (876.37Hz, matching the unexplained deviation flagged in §2.2) as the naive version — strong evidence the two implementations are mathematically equivalent, not just coincidentally close on most inputs.
+
+**Real speed comparison (sandbox CPU, NOT the reference hardware):**
+```
+Naive difference function: 710.08 microseconds/call
+FFT-based difference function: 187.13 microseconds/call
+Speedup: 3.79x
+```
+
+**Honest interpretation:**
+- Correctness is genuinely well-verified — this isn't "close enough," it's mathematically equivalent within floating-point precision, confirmed on real test data.
+- The 3.79x speedup is real, but measured on this sandbox's CPU, not Michael's AMD Ryzen 7 8840HS. Different CPUs (cache sizes, SIMD capabilities, FFT library optimization paths) can produce different speedup ratios. **This must be re-measured on the actual reference hardware before being treated as a real number for this project**, exactly as flagged by the code's own printed output.
+- If a similar speedup holds on the reference hardware, the earlier ~50% CPU finding (§2.7) would drop to roughly ~13%, which would meaningfully change the real-time budget picture — but this is a projection, not yet a confirmed measurement, and must be stated as such until actually re-tested.
+
+## 2.10 Action items carried forward
+
+1. **Re-run the live-microphone real-time test (§2.5) with the FFT-based difference function substituted for the naive one, wrapped in `/usr/bin/time -v`, on the actual reference hardware** — this is the real test that resolves whether the projected CPU improvement holds.
+2. If the optimization holds up on real hardware, re-run the controlled reference-tone accuracy test (§2.7) with the FFT-based version too, to confirm accuracy is preserved end-to-end, not just in the isolated difference-function comparison above.
 
 ---
 
