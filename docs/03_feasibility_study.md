@@ -427,7 +427,45 @@ C major missing leading tone (ambiguity test): Detected C major, r=0.9308  MATCH
 
 # 5. Harmony Feasibility
 
-**Status: NOT YET TESTED.** Depends on §2 (pitch detection working on real melodies) and §4 (key detection) being further along first, per the roadmap's stated dependency (melody + key + range → harmony notes). Premature to prototype before those inputs are real rather than synthetic.
+**Status: Partial — diatonic-third rule-based harmony implemented and tested with real voice-leading checks. Real melodic input and true independent voice-leading are NOT YET DONE.**
+
+## 5.1 What was built
+
+MVP-scope rule-based harmony (Problem Statement: diatonic triadic, vocal-range aware, basic voice-leading): a **diatonic-third** harmonizer — the harmony note is placed a diatonic third below the melody note (falling back to a third above when the range constraint would otherwise be violated), where "diatonic third" means the interval alternates between major and minor thirds depending on scale degree, **not** a fixed chromatic interval. This is a deliberate, real distinction from the naive "melody + fixed semitone offset" approach the Project Vision (§12) explicitly warned against.
+
+## 5.2 Real test — diatonic C major melody, with an actual voice-leading check
+
+Test melody (hand-constructed, diatonic, C major): C4 D4 E4 F4 G4 E4 C4 D4. Vocal range constraint: MIDI 53–72 (F3–C5). Real output:
+
+```
+C4 -> A3 (third below)   D4 -> B3 (third below)   E4 -> C4 (third below)
+F4 -> D4 (third below)   G4 -> E4 (third below)   E4 -> C4 (third below)
+C4 -> A3 (third below)   D4 -> B3 (third below)
+
+Voice-leading check: No parallel fifth/octave violations detected.
+```
+
+**Honest interpretation — this result is weaker evidence than it might look:** because this technique uses a *constant interval type* (always "a third") between melody and harmony, parallel fifths/octaves are structurally close to impossible to produce in the first place — the interval between the two voices essentially never becomes a fifth or octave/unison to begin with. So "zero violations" here is closer to an expected property of the technique than a validated achievement. **The real test of this component's voice-leading quality is at the fallback discontinuities** (where the logic switches between "third below" and "third above"), not in a passage where the interval type never changes.
+
+## 5.3 Real test — range-constrained melody, exposing a genuine limitation
+
+A low melody (C3 D3 E3) was tested specifically to exercise the range-fallback logic. Real output:
+
+```
+C3 -> NO VALID HARMONY (out of range both directions)
+D3 -> F3 (third above (range fallback))
+E3 -> G3 (third above (range fallback))
+```
+
+**Honest interpretation — a real limitation found, not hidden:** for C3, **neither** a diatonic third below nor above fit the given vocal range — the current implementation's fallback logic can genuinely fail. The prototype's own fallback-of-last-resort (defaulting to unison with the melody) is not a real solution — unison isn't harmony, and a production implementation needs a better strategy (e.g. trying a diatonic sixth, or expanding the search further) rather than silently degrading. This is exactly the kind of edge case that only surfaces through actually testing range-constrained input, not from reasoning about the algorithm on paper.
+
+## 5.4 Action items carried forward
+
+1. **Fix the range-fallback failure case** — implement a proper secondary fallback (e.g. diatonic sixth) instead of defaulting to unison, and re-test.
+2. **Specifically test the fallback-discontinuity voice-leading risk** — construct a melody that forces a mid-phrase switch between "third below" and "third above," and check whether that transition produces an awkward leap or genuine parallel-motion violation, since the current test melodies didn't exercise this.
+3. This entire component still needs testing against **real melodic input** (from real pitch detection, Section 2) and **real detected keys** (Section 4), not hand-constructed symbolic data — the current test validates the harmonization logic in isolation, not the full real pipeline.
+4. Compare this simple diatonic-third approach against the more sophisticated CSP-based voicing approach from Yogev & Lerch (2008, Literature Review §4.1) to assess whether the added complexity is worth it for the MVP, or should remain a later-phase upgrade.
+5. No formant/audio-quality testing has been done on generated harmony yet — this section only tests the symbolic note-selection logic, not the pitch-shift rendering (Section 3) applied to actually produce the harmony audio.
 
 ---
 
@@ -491,7 +529,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 | Pitch detection | Partial | **Yes** — reference-tone test: 99.4% detection, 0.99 cents error. FFT-based optimization verified mathematically identical to naive YIN, then real-tested on hardware: CPU dropped ~50%→28% (real, though smaller than sandbox's 3.79x projection — plan-caching fix identified as the likely gap). Detection-rate jump in the live-mic re-test (0.4%→94%) explicitly NOT attributed to the algorithm — flagged as a session-to-session vocalization confound, not an accuracy claim. Real melodic/vibrato singing accuracy still not controlled-tested. |
 | Pitch shifting | Partial | **Yes** — basic TD-PSOLA implemented, pitch accuracy verified via our own YIN detector: 5/6 shifts within ~1.8-2.8 cents. Octave-up shift failed entirely (no detection) — real limitation, flagged for investigation. Formant preservation completely untested (sine wave test signal has no formants). |
 | Key detection | Partial | **Yes** — Krumhansl-Schmuckler implemented, profile values verified via 2 independent sources, 6/6 synthetic symbolic test cases correctly identified (incl. an ambiguity test). Real audio/singing-voice accuracy (the actual literature gap) still untested — this validates correctness, not real-world accuracy. |
-| Harmony generation | Not started | No — depends on above |
+| Harmony generation | Partial | **Yes** — diatonic-third harmonizer implemented and tested. "Zero voice-leading violations" result flagged as weak evidence (near-tautological for constant-interval technique). Real limitation found: range-fallback logic can genuinely fail (no valid harmony note both directions) — needs a fix. Real melodic/key input, formant-quality rendering still untested. |
 | ML dataset feasibility | **Complete for this pass** | **Yes** — real datasets identified (JaCappella, Dagstuhl ChoirSet, Vocal92, JSB Chorales, Bach Choral Harmony), genre/scale mismatches honestly assessed, licensing flagged as unconfirmed rather than assumed |
 
 **This document is intentionally incomplete rather than padded with plausible-sounding placeholder numbers.** Per the operating charter, an honest partial Feasibility Study is the correct output at this point — not a complete-looking document built on invented data.
