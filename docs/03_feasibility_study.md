@@ -384,7 +384,44 @@ Six shift ratios were tested on a 220Hz synthetic sine wave, spanning correction
 
 # 4. Key Detection Feasibility
 
-**Status: NOT YET TESTED.** Requires real recorded melodies (not synthetic tones) to build a genuine chromagram and test Krumhansl-Schmuckler correlation, per Literature Review §4A. This is the section most directly informed by our own identified literature gap (no study found benchmarking key detection on sparse monophonic vocal input specifically) — meaning this prototype, when built, will be producing a genuinely novel data point, not confirming an existing published number.
+**Status: Partial — Krumhansl-Schmuckler implemented and verified on synthetic symbolic melodies. Real singing-voice accuracy (the literature's identified gap) NOT YET TESTED.**
+
+## 4.1 What was built
+
+The Krumhansl-Schmuckler chroma-correlation algorithm (Literature Review §4A.1), using the standard Krumhansl-Kessler profile weights. **Profile values were independently verified via two separate real sources in this session** (arXiv:2104.04143 and an independent Python implementation write-up), both giving identical numbers — not taken from memory alone:
+- Major: [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+- Minor: [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+
+## 4.2 Real correctness test — synthetic symbolic melodies (clean, not audio)
+
+Six hand-constructed test melodies (as pitch-class + duration pairs, not audio) were tested, including diatonic scales, tonic-weighted "realistic" melodies, and one deliberately ambiguous case (a C major scale with the leading tone removed, testing relative-minor confusion risk). Real results:
+
+```
+C major scale (equal durations):        Detected C major, r=0.9014  MATCH
+A natural minor scale (equal durations): Detected A minor, r=0.8662  MATCH
+G major scale (equal durations):         Detected G major, r=0.9014  MATCH
+C major, tonic-weighted:                 Detected C major, r=0.8798  MATCH
+E minor, tonic-weighted:                 Detected E minor, r=0.8213  MATCH (E major close second: r=0.8132)
+C major missing leading tone (ambiguity test): Detected C major, r=0.9308  MATCH
+
+6/6 test cases matched expected key
+```
+
+## 4.3 Honest interpretation
+
+**What this validates, genuinely:** the algorithm implementation is correct on clean, unambiguous symbolic input — 6/6 including a case specifically designed to risk relative-minor confusion. The E minor case's narrow margin (0.8213 vs. 0.8132 for E major) is a real, useful data point: it shows that even in a clean synthetic test with zero noise, major/minor confusion for the same tonic is a genuine, close-margin risk — not just a theoretical concern from the literature, but something reproducible in our own implementation.
+
+**What this does NOT yet test — the actual open question:**
+- All test input here is **clean symbolic data (pitch-class + duration pairs I constructed directly)**, not audio, and not real singing.
+- Real input would come through our own YIN pitch detector first (Section 2), which has its own real, measured error characteristics — compounding errors between pitch detection and key detection have not been tested together.
+- **Real sung melodies are sparse and monophonic relative to a full mix**, which is exactly the literature gap the Literature Review (§4A.3) identified as untested anywhere in the literature we found. This prototype validates the algorithm's correctness, not its accuracy on that specific, harder, real-world case.
+- Real melodies also have much more varied, less "clean" pitch-class distributions than even the tonic-weighted test cases used here, which were still hand-constructed to be reasonably idealized.
+
+## 4.4 Action items carried forward
+
+1. Feed real YIN-detected pitch sequences from actual recorded singing (once available) through this chroma-building step, rather than hand-constructed symbolic data — this is the real test that resolves the literature's identified gap.
+2. Investigate whether alternative key-profile weightings (Aarden-Essen, Temperley, per Literature Review §4A) perform differently on real sung input, given the Literature Review found no single "best" profile across sources.
+3. Test with genuinely ambiguous or modulating real melodies, not just hand-picked edge cases, to get a realistic sense of the confidence/uncertainty the system will need to communicate to the user (per Problem Statement §2.3's user-override requirement).
 
 ---
 
@@ -453,7 +490,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 | Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host, round-trip latency ~15.88ms (unseparated from transducer response), and a real 30s idle-passthrough endurance test: ~2% CPU, ~9.3MB RAM, 0 large timing gaps/11237 callbacks. Real DSP-load endurance test not yet done. |
 | Pitch detection | Partial | **Yes** — reference-tone test: 99.4% detection, 0.99 cents error. FFT-based optimization verified mathematically identical to naive YIN, then real-tested on hardware: CPU dropped ~50%→28% (real, though smaller than sandbox's 3.79x projection — plan-caching fix identified as the likely gap). Detection-rate jump in the live-mic re-test (0.4%→94%) explicitly NOT attributed to the algorithm — flagged as a session-to-session vocalization confound, not an accuracy claim. Real melodic/vibrato singing accuracy still not controlled-tested. |
 | Pitch shifting | Partial | **Yes** — basic TD-PSOLA implemented, pitch accuracy verified via our own YIN detector: 5/6 shifts within ~1.8-2.8 cents. Octave-up shift failed entirely (no detection) — real limitation, flagged for investigation. Formant preservation completely untested (sine wave test signal has no formants). |
-| Key detection | Not started | No — needs real melody recordings |
+| Key detection | Partial | **Yes** — Krumhansl-Schmuckler implemented, profile values verified via 2 independent sources, 6/6 synthetic symbolic test cases correctly identified (incl. an ambiguity test). Real audio/singing-voice accuracy (the actual literature gap) still untested — this validates correctness, not real-world accuracy. |
 | Harmony generation | Not started | No — depends on above |
 | ML dataset feasibility | **Complete for this pass** | **Yes** — real datasets identified (JaCappella, Dagstuhl ChoirSet, Vocal92, JSB Chorales, Bach Choral Harmony), genre/scale mismatches honestly assessed, licensing flagged as unconfirmed rather than assumed |
 
