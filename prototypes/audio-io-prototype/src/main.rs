@@ -2,10 +2,10 @@
 // AcapellaStudio Phase 3 Feasibility Study
 // Run on Michael's actual reference hardware (AMD Ryzen 7 8840HS, Kubuntu, PipeWire 1.6.2).
 //
-// KNOWN INEFFICIENCY (flagged, not fixed yet): creates a fresh FftPlanner
-// every callback instead of caching one - identified as the likely cause of
-// the real speedup (1.79x) falling short of the sandbox-measured speedup
-// (3.79x). Next step is to fix this and re-measure.
+// Plan-caching fix applied: the FftPlanner is created ONCE before the stream
+// starts (see main()), not recreated every callback. This was the identified
+// inefficiency from the earlier real-hardware test (28% CPU, higher than the
+// sandbox-projected ~13%).
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rustfft::{FftPlanner, num_complex::Complex};
@@ -144,11 +144,14 @@ fn main() {
     let ld = last_detected.clone();
     let dc = detect_count.clone();
 
+    // Plan cache fix: create the FftPlanner ONCE here, before the stream
+    // starts, then move it into the closure so it persists across calls
+    // instead of being recreated (and re-allocating) every single callback.
+    let mut planner = FftPlanner::<f64>::new();
+
     let stream = input_device.build_input_stream(
         input_config.clone(),
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            let mut planner = FftPlanner::<f64>::new();
-
             let callback_start = Instant::now();
 
             cc.fetch_add(1, Ordering::Relaxed);

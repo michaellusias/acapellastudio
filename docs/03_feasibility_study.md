@@ -343,7 +343,42 @@ Michael reports singing a low-to-high glide during informal testing and finding 
 
 # 3. Pitch-Shifting Feasibility
 
-**Status: NOT YET TESTED.** Requires a real audio signal (recorded voice or at minimum recorded/synthesized harmonic material more complex than a sine wave) and a PSOLA or phase-vocoder implementation, neither of which exist yet. This is next in line for prototyping once §2's singing-voice testing is underway, since pitch-shifting quality evaluation is most meaningful when done on the same real vocal material pitch detection will be tested against.
+**Status: Partial — basic TD-PSOLA implemented and pitch-accuracy-tested on synthetic sine waves in the sandbox. Formant-preservation testing and real-voice testing NOT YET DONE.**
+
+## 3.1 What was built
+
+A basic TD-PSOLA (time-domain pitch-synchronous overlap-add) implementation, per the Literature Review's primary candidate (§2.1). Since analysis grain centers use the *known* true period of a synthetic test signal rather than a real pitch-mark detector, this tests the core resynthesis concept in isolation — a real pitch-shifting pipeline on actual vocal input would still need a separate pitch-mark detection component, not yet built.
+
+## 3.2 Real correctness test — pitch accuracy, verified against our own YIN detector
+
+Six shift ratios were tested on a 220Hz synthetic sine wave, spanning correction-scale (±20 cents) to harmony-scale (minor third, fifth, octave up/down) shifts, per the distinction the Problem Statement (§2.7) and Literature Review (§2.4) both raised. Output pitch was verified using our own already-validated YIN detector, not just assumed correct. Real results:
+
+| Test | Input Hz | Target Hz | Detected Hz | Error (cents) |
+|---|---:|---:|---:|---:|
+| Correction: +20 cents | 220.00 | 222.56 | 222.25 | -2.37 |
+| Correction: -20 cents | 220.00 | 217.47 | 217.25 | -1.78 |
+| Harmony: minor third up (+300¢) | 220.00 | 261.63 | 261.20 | -2.81 |
+| Harmony: perfect fifth up (+700¢) | 220.00 | 329.63 | 329.14 | -2.54 |
+| Harmony: octave down (-1200¢) | 220.00 | 110.00 | 109.88 | -1.91 |
+| Harmony: octave up (+1200¢) | 220.00 | 440.00 | **NO DETECT** | N/A |
+
+## 3.3 Honest interpretation
+
+**What worked, genuinely:** five of six shifts landed within ~1.8–2.8 cents of target — a real, working pitch-shift, verified by an independent tool (our YIN detector) rather than assumed correct.
+
+**A real limitation of this specific test, not a minor footnote:** the test signal is a **pure sine wave, which has no formants at all**. This means the test can only verify that PSOLA moves the fundamental frequency to the right place — it says **nothing** about formant/timbre preservation, which is the actual thing the Literature Review (§2.3) and Problem Statement (§2.7/R-010) identified as the harder, scale-dependent problem (the "chipmunk effect"). A meaningful formant-preservation test needs a signal with real harmonic/formant-like structure, which this test does not have. **This gap should not be read as "harmony-scale shifting is fine" — it simply hasn't been tested yet.**
+
+**A real failure, investigated rather than hidden:** the octave-up shift produced **no detectable output pitch at all**. The most likely cause, based on the algorithm's structure (not yet confirmed by further testing): shifting up an octave means synthesis grains are packed twice as densely as the original analysis spacing, which could cause significant amplitude buildup or destructive overlap in this basic implementation's normalization. This is a genuine, real limitation discovered through testing, not a rounding artifact — it needs investigation before octave-up shifting (relevant to a bass-voice-from-soprano scenario, though inverted in direction) can be considered even provisionally working.
+
+**The small residual errors (~2-3 cents) across all successful cases** are worth a closer look — a plausible cause (not yet confirmed) is that the analysis period `t0_samples` is rounded to an integer number of samples, introducing quantization error before any resynthesis even begins. This should be checked before concluding the algorithm itself is the source of the error.
+
+## 3.4 Action items carried forward
+
+1. Investigate and fix the octave-up failure before treating any upward large-interval shift as working.
+2. Build a test signal with real harmonic/formant-like structure (e.g. a sum of harmonics with a fixed resonance-like amplitude envelope) to actually test formant preservation — the real, currently-untested question that matters for the correction-scale vs. harmony-scale distinction.
+3. Check whether the ~2-3 cent residual error is caused by integer rounding of the analysis period, and whether that's fixable with sub-sample-accurate grain placement.
+4. Once real vocal recordings exist (§1), build actual pitch-mark detection (not the "known true period" shortcut used here) and re-test on real voice.
+5. Compare this basic PSOLA against a phase-vocoder implementation (Literature Review §2.2) on the same test material, once both exist.
 
 ---
 
@@ -417,7 +452,7 @@ This corrects/upgrades the Literature Review's Pass-1 stated gap ("no dedicated 
 |---|---|---|
 | Audio I/O feasibility | **In progress** | **Yes** — real toolchain, native PipeWire host, round-trip latency ~15.88ms (unseparated from transducer response), and a real 30s idle-passthrough endurance test: ~2% CPU, ~9.3MB RAM, 0 large timing gaps/11237 callbacks. Real DSP-load endurance test not yet done. |
 | Pitch detection | Partial | **Yes** — reference-tone test: 99.4% detection, 0.99 cents error. FFT-based optimization verified mathematically identical to naive YIN, then real-tested on hardware: CPU dropped ~50%→28% (real, though smaller than sandbox's 3.79x projection — plan-caching fix identified as the likely gap). Detection-rate jump in the live-mic re-test (0.4%→94%) explicitly NOT attributed to the algorithm — flagged as a session-to-session vocalization confound, not an accuracy claim. Real melodic/vibrato singing accuracy still not controlled-tested. |
-| Pitch shifting | Not started | No — needs real audio + PSOLA/vocoder implementation |
+| Pitch shifting | Partial | **Yes** — basic TD-PSOLA implemented, pitch accuracy verified via our own YIN detector: 5/6 shifts within ~1.8-2.8 cents. Octave-up shift failed entirely (no detection) — real limitation, flagged for investigation. Formant preservation completely untested (sine wave test signal has no formants). |
 | Key detection | Not started | No — needs real melody recordings |
 | Harmony generation | Not started | No — depends on above |
 | ML dataset feasibility | **Complete for this pass** | **Yes** — real datasets identified (JaCappella, Dagstuhl ChoirSet, Vocal92, JSB Chorales, Bach Choral Harmony), genre/scale mismatches honestly assessed, licensing flagged as unconfirmed rather than assumed |
