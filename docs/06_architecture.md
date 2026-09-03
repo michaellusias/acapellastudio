@@ -56,21 +56,26 @@ Audio I/O  DSP   Rule       Voice Track   Clip  Pitch    Mix
 
 # 2. Real-Time / Non-Real-Time Separation
 
-Per the roadmap's stated principle and the Problem Statement's NFR-RT-005/007:
+Per the roadmap's stated principle and the Problem Statement's NFR-RT-005/007.
+
+**Amended (Problem Statement §33, Amendment 2): automatic pitch correction has moved out of the real-time path entirely.** The diagram below reflects this — it is a real, substantive change from the version of this document originally drafted, not a relabeling.
 
 ```text
 REAL-TIME PATH (deadline-critical — must complete within the buffer interval)
 
 Microphone
    → Audio Callback (cpal)
-   → Pitch Detection (YIN — validated: 28% CPU with FFT optimization, §2.11)
-   → Automatic Pitch Correction (NOT YET BUILT — see Architecture Gap §5.1)
-   → Real-Time Mixing (NOT YET BUILT)
-   → Output
+   → Pitch Detection (YIN — validated: 28% CPU with FFT optimization, §2.11 — MAY still
+      run here for live visual feedback, but no longer drives real-time correction)
+   → Real-Time Mixing (NOT YET BUILT — for monitoring only; raw, uncorrected signal)
+   → Output (raw, uncorrected monitoring — the singer hears themselves without correction)
 
 
-NON-REAL-TIME PATH (may take longer than one buffer interval)
+NON-REAL-TIME PATH (may take longer than one buffer interval — runs POST-RECORDING)
 
+Automatic Pitch Correction   (MOVED HERE from the real-time path — see rationale below.
+                               NOT YET BUILT as a "detect + shift toward nearest scale
+                               tone" pipeline; PSOLA shifting exists in isolation, §3)
 Manual Pitch Editing        (NOT YET BUILT)
 Clip Editing                (NOT YET BUILT)
 Key Detection                (real algorithm exists — Krumhansl-Schmuckler is
@@ -85,7 +90,9 @@ Project Save/Load             (NOT YET BUILT)
 Export                        (NOT YET BUILT)
 ```
 
-**Real, evidence-based note on placement:** pitch *detection* is confirmed real-time-safe (Feasibility Study §2.11 — real hardware test, stable timing even under DSP load). Pitch *shifting* has never been tested inside the real-time callback at all — the PSOLA prototype (§3) was tested offline, on pre-generated buffers, not inside a live audio callback. **Whether PSOLA is fast enough for the real-time correction path is an open question, not yet answered**, and should not be assumed from the offline test alone.
+**Why this changed, and what it resolves:** the Feasibility Study found real-time round-trip latency (~15.76–16.00ms, §1.9) already exceeding the original ≤10ms corrected-monitoring target, and PSOLA had never been tested inside a live callback at all — its real-time feasibility was completely unknown, not just imperfect (this was the open question raised immediately below, in the original version of this note). Moving correction to a post-recording step removes both problems: raw monitoring only needs to solve the comparatively easier uncorrected-latency case, and PSOLA/harmony rendering gain unlimited processing time — meaningfully lowering technical risk for the MVP. This does not abandon real-time correction forever; it is deferred as a later-phase enhancement (Problem Statement §33), once post-recording correction is proven.
+
+**What did NOT change:** pitch detection may still run in the real-time path for live visual feedback (e.g. showing the singer their pitch contour as they sing), and remains confirmed real-time-safe (Feasibility Study §2.11). Raw monitoring latency (NFR-RT-002) remains a real, still-open requirement — it did not go away, it's simply now the *only* real-time latency target that matters, rather than one of two.
 
 ---
 
@@ -182,13 +189,16 @@ Per NFR-RT-005 and the honest finding at the top of this document: **the real Au
 # 5. Architecture Gaps (Explicit, Not Hidden)
 
 ## 5.1 Automatic Pitch Correction Is Not Designed Yet
-The real-time diagram (§2) shows "Automatic Pitch Correction" in the deadline-critical path, but no component for "find nearest scale tone given a detected frequency and a key" exists in any prototype. This is a real, unaddressed gap between validated components (pitch detection, PSOLA shifting) and the feature the Problem Statement's FR-005 actually requires.
+**Amended (§33 amendment, now post-recording, not real-time):** no component for "find nearest scale tone given a detected frequency and a key" exists in any prototype. This is a real, unaddressed gap between validated components (pitch detection, PSOLA shifting) and the feature the Problem Statement's FR-005 actually requires — the gap itself is unchanged by the real-time-to-post-recording move; only the deadline constraint around eventually building it has relaxed.
 
 ## 5.2 Harmony Audio Rendering Is Not Wired to Harmony Decision-Making
 The Rule Engine produces symbolic notes (validated). The Pitch Shifter can shift audio to a target pitch (validated, with the octave-up caveat). **These two have never been connected as one pipeline** — there is no real evidence yet that feeding the Rule Engine's output into the Pitch Shifter, on real melody audio, produces usable harmony audio.
 
-## 5.3 Real-Time Placement of Pitch Shifting Is Unverified
-As noted in §2, PSOLA has never been tested inside a live audio callback. Whether it's fast enough for the real-time correction path, at the buffer sizes and hardware already characterized (Feasibility Study §1), is completely unknown.
+## 5.3 Real-Time Placement of Pitch Shifting — RESOLVED by architectural change
+
+~~As noted in §2, PSOLA has never been tested inside a live audio callback. Whether it's fast enough for the real-time correction path, at the buffer sizes and hardware already characterized (Feasibility Study §1), is completely unknown.~~
+
+**Resolved, not by testing but by removing the requirement (Problem Statement §33, Amendment 2): pitch correction and harmony rendering no longer run inside the real-time callback at all**, so PSOLA's real-time speed is no longer a blocking question for the MVP. Retained, struck through, for change history — this was a genuine open risk that is now moot by design, not by evidence.
 
 ---
 

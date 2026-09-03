@@ -31,9 +31,10 @@ The system shall detect the fundamental frequency of vocal input in real time.
 **Status:** **Exceeded on the reference-tone test** — real measured mean absolute error was 0.99 cents (Feasibility Study §2.7), well under the 5-cent bar. Real melodic/vibrato singing accuracy remains untested (§2.13 notes an informal, non-controlled positive impression only).
 
 ## FR-005 — Correct Pitch (Automatic)
-The system shall automatically shift detected vocal pitch toward a target note within a selected key/scale.
-**Acceptance criteria:** corrected output pitch lands within a defined cents tolerance of the target note; correction does not introduce detectable dropouts in the real-time path.
-**Status:** Not yet implemented — pitch *detection* is validated (FR-004), but no automatic correction (pitch-shift-to-target-note logic) has been built or tested yet. PSOLA pitch-shifting itself has been tested in isolation (Feasibility Study §3), but not wired into a "detect, then correct toward nearest scale tone" pipeline.
+**Amended (Problem Statement §33, Amendment 2): performed post-recording, not in the real-time monitoring path.**
+The system shall automatically shift detected vocal pitch toward a target note within a selected key/scale, applied to a captured recording rather than live input.
+**Acceptance criteria:** corrected output pitch lands within a defined cents tolerance of the target note; since this is no longer real-time, "no detectable dropouts in the real-time path" is replaced by a responsiveness bar (e.g. processing completes within a defined, user-acceptable wait time) — that specific bar is not yet defined and is an open item.
+**Status:** Not yet implemented — pitch *detection* is validated (FR-004), but no automatic correction (pitch-shift-to-target-note logic) has been built or tested yet. PSOLA pitch-shifting itself has been tested in isolation (Feasibility Study §3), but not wired into a "detect, then correct toward nearest scale tone" pipeline. Moving this off the real-time path removes the previously-open real-time-feasibility question (Architecture §5.3) but does not by itself fix PSOLA's confirmed octave-up bug or the untested formant-preservation question.
 
 ## FR-006 — Manually Edit Pitch
 The system shall allow the user to view and manually adjust detected pitch on recorded audio.
@@ -90,6 +91,7 @@ The system shall estimate the key/scale of a recorded monophonic melody and allo
 **Target (from Problem Statement):** ≤10ms end-to-end for uncorrected monitoring.
 **Real measurement:** round-trip acoustic loopback latency measured at 15.76ms and 16.00ms (two consistent runs) at the 128-sample buffer (Feasibility Study §1.9). This figure includes real transducer response time that has not yet been isolated from pure software/OS-path latency.
 **Status:** **Not yet met, and not yet confirmed as failed** — the honest status is "not demonstrated," since the measured figure cannot currently be cleanly separated into software-path latency vs. transducer response. This NFR should remain open, not silently downgraded or silently claimed as met, until an isolation method (e.g. electrical loopback) is available.
+**Note (post-freeze Amendment 2, Problem Statement §33):** since automatic pitch correction has moved out of the real-time path entirely, this NFR is now the *only* real-time monitoring latency requirement in the project — there is no longer a separate, harder "corrected monitoring" real-time target to also satisfy. This simplifies the real-time latency problem, though it does not change this specific NFR's own status.
 
 ## NFR-RT-004 — Audio Processing Deadline (Idle Passthrough)
 **Target:** processing time within the available buffer interval (2.667ms at 128 samples/48kHz).

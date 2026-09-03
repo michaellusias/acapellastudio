@@ -183,12 +183,14 @@ The system shall therefore allow user confirmation or manual selection rather th
 
 ## 6.3 Automatic Pitch Correction
 
+**Amended post-freeze (§33, Amendment 2): pitch correction is performed post-recording, not in the real-time monitoring path.** "Processing latency" below now refers to responsiveness of the offline correction step, not a hard real-time deadline.
+
 How can detected vocal pitch be shifted toward a desired musical pitch while maintaining acceptable audio quality and minimizing audible artifacts?
 
 The investigation shall consider:
 
 - Pitch accuracy
-- Processing latency
+- Processing latency (offline responsiveness, not real-time deadline — see amendment above)
 - Formant preservation
 - CPU consumption
 - Audio artifacts
@@ -361,13 +363,11 @@ Raw microphone monitoring without pitch correction.
 
 This path shall target a low end-to-end monitoring latency appropriate for live singing, with an initial target of approximately 10 ms or lower under the defined reference configuration.
 
-### B. Corrected Monitoring
+### B. Corrected Monitoring — REMOVED post-freeze, see §33
 
-Monitoring in which the vocal signal passes through real-time pitch detection and pitch correction.
+~~Monitoring in which the vocal signal passes through real-time pitch detection and pitch correction.~~
 
-This path may have higher latency because pitch-shifting algorithms can introduce algorithmic delay.
-
-Therefore, the corrected-monitoring latency shall be experimentally measured after the pitch-shifting method has been selected rather than being assumed to equal the raw-monitoring target.
+**Superseded (see §33, Post-Freeze Amendment 2): automatic pitch correction is no longer performed in the real-time monitoring path. The singer monitors raw, uncorrected audio while recording; pitch correction is applied afterward, on the captured recording, with no real-time deadline.** This subsection is retained, struck through, for change-history purposes rather than deleted outright.
 
 
 ## 6.13 Resource Efficiency
@@ -413,6 +413,8 @@ Alternative algorithms may be investigated if YIN does not provide sufficient ac
 
 
 ### 5. Automatic Pitch Correction
+
+**Amended post-freeze (§33, Amendment 2): applied post-recording, not during real-time monitoring.**
 
 The system can automatically correct detected vocal pitch toward a selected key/scale or target note.
 
@@ -865,11 +867,11 @@ Investigate dataset availability during the feasibility stage. If necessary, con
 
 ## R-009 — Latency Budget Optimism
 
-Pitch-corrected monitoring may not achieve the same latency as uncorrected monitoring.
+~~Pitch-corrected monitoring may not achieve the same latency as uncorrected monitoring.~~
 
-**Mitigation:**
+**Resolved by architectural change, post-freeze (§33, Amendment 2): since pitch correction no longer runs in the real-time monitoring path at all, this specific risk no longer applies as originally framed.** Retained, struck through, for change history. The underlying real evidence that motivated this risk (Feasibility Study §1.9: ~15.88ms measured round-trip, not cleanly separable from transducer response) remains relevant context for *why* keeping correction out of the real-time path was the right call, even though the risk itself is now moot.
 
-Measure algorithmic latency separately and establish independent acceptance targets.
+**Mitigation (historical):** Measure algorithmic latency separately and establish independent acceptance targets.
 
 
 ## R-010 — Large-Interval Pitch-Shift Quality
@@ -1175,3 +1177,24 @@ These items are the intended starting point for the **Feasibility Study**, the n
 - Linked the harmony-to-audio open question (§6.8) explicitly to R-012, and flagged it as the first question the Feasibility Study should answer.
 - Linked the harmony-interval-selection open question (§6.9) explicitly to the upcoming SRS.
 - No structural or scope changes were made — v6's content is otherwise unchanged from the version submitted for approval.
+
+## Amendment 1 (Phase 1, Literature Review)
+
+- Added R-014 (IP/patent risk in pitch-shift-based harmony generation), based on real evidence found during the Literature Review (a US patent architecturally close to the planned rule-based harmony engine).
+
+# 33. Post-Freeze Amendment 2 — Pitch Correction Moved Out of the Real-Time Path
+
+**Date/phase:** during Phase 7 (Technology Selection), following real evidence from the Feasibility Study.
+
+**Change:** automatic pitch correction (and, by extension, harmony audio rendering) is no longer performed inside the real-time monitoring path. The singer records with raw, uncorrected monitoring only. Pitch correction is applied as a post-recording processing step, with no real-time deadline.
+
+**Rationale — grounded in real project evidence, not a preference reversal:**
+1. The real-time round-trip latency measured in the Feasibility Study (§1.9: ~15.76–16.00ms) already exceeded the original ≤10ms corrected-monitoring target, and could not be cleanly separated from transducer response — this was a genuinely unresolved, open problem (SRS NFR-RT-002).
+2. PSOLA pitch shifting had never been tested inside a live real-time callback at all (Architecture §5.3) — its real-time feasibility was completely unknown, not just imperfect.
+3. Post-recording processing removes both problems at once: raw monitoring only needs to solve the easier, already-partially-validated uncorrected-latency problem (§1.9's uncorrected path, closer to the original target), and correction/harmony rendering gain unlimited processing time, enabling higher-quality, look-ahead-capable algorithms that a hard real-time deadline would have prevented.
+4. This does not abandon real-time correction permanently — hearing corrected pitch while performing is a legitimate, real feature some vocalists want (comparable to live Auto-Tune monitoring). It is deferred as a later-phase enhancement once post-recording correction is proven, consistent with this project's established pattern of shipping the simpler, solid version first (e.g. one harmony voice before many).
+
+**Documents affected by this change (updated accordingly):** this document (§6.3, §6.12.B, R-009, MVP feature #5), `04_requirements.md` (FR-005), `05_system_analysis.md` (Activity Diagram 4.2), `06_architecture.md` (real-time/non-real-time split).
+
+**What did NOT change:** raw monitoring remains a real-time requirement (the singer must hear themselves without noticeable delay while recording) — only correction and harmony rendering moved to post-processing. Pitch *detection* may still run in real time if useful for live visual feedback, but is no longer required to drive real-time correction.
+

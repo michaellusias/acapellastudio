@@ -221,12 +221,15 @@ System Finalizes AudioClip
 
 ## 4.2 Pitch Correction
 
+**Amended (Problem Statement §33, Amendment 2): this entire flow now runs POST-RECORDING, not in the real-time monitoring path.** The user records with raw monitoring only; the flow below runs afterward, on the captured recording, with no hard deadline.
+
 ```text
-[Start]
+[Start - triggered after recording is captured, not during live monitoring]
    |
    v
-System Detects Pitch (REAL, validated: YIN, 0.99 cents error on reference tone, §2.7)
-   |
+System Detects Pitch (REAL, validated: YIN, 0.99 cents error on reference tone, §2.7 -
+   |                    can now run non-causally, with full look-ahead, since there is
+   |                    no real-time deadline)
    v
 Is confident pitch detected? --No--> [Hold / no correction applied - behavior undefined
    |                                   for ambiguous/silent input, open gap]
@@ -239,7 +242,10 @@ Compute Nearest Target Scale Tone (NOT YET IMPLEMENTED - no "nearest scale tone"
 Shift Pitch Toward Target (PARTIALLY REAL: PSOLA shifting validated for accuracy at
    |                         correction-scale intervals, §3.2 - but formant preservation
    |                         completely untested, and this has never been driven by a
-   |                         real-time "target = nearest scale tone" computation)
+   |                         "target = nearest scale tone" computation. Removing the
+   |                         real-time deadline resolves Architecture §5.3's open question
+   |                         about whether PSOLA is fast enough for live use - it no
+   |                         longer needs to be.)
    v
 Output Corrected Audio
    |
