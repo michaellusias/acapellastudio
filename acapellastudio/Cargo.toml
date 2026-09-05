@@ -1,0 +1,12 @@
+[package]
+name = "acapellastudio"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cpal = { version = "0.18.2", features = ["pipewire", "realtime"] }
+rustfft = "6"
+
+[dev-dependencies]
+# real, standard Rust testing - cargo test is Rust's built-in framework,
+# no need to research/select an external one for unit-level testing
