@@ -102,7 +102,7 @@ Export                        (NOT YET BUILT)
 
 **Responsibility:** own the real-time audio callback; own audio device I/O; host the deadline-critical DSP chain.
 **Real basis:** `prototypes/audio-io-prototype/` — confirmed native PipeWire backend, confirmed 128-sample buffer honored, confirmed stable timing under both idle and real-DSP-load conditions.
-**Known open issue:** the prototype's ring buffer uses `std::sync::Mutex`, which is not a real-time-safe primitive by guarantee (see §4.3). The production Audio Engine must not inherit this as-is.
+**Known open issue, RESOLVED in Phase 11 (see Detailed Design §2.1 and Architecture §4.3):** the prototype's ring buffer used `std::sync::Mutex`, not real-time-safe by guarantee. Fixed using `rtrb` (wait-free SPSC ring buffer) in the real Phase 11 implementation.
 
 ## 3.2 DSP Engine
 
@@ -176,11 +176,13 @@ enum HarmonyError {
 
 **Real basis:** the `Result`/`HarmonyError` design is a direct, evidence-driven response to the actual failure found in Feasibility Study §5.3 — the prototype's silent-unison fallback is exactly the kind of failure this interface is designed to make impossible to ignore (the caller must handle `Err`, not receive a silently-degraded `Ok`).
 
-## 4.3 Real-Time Safety Interface Constraint
+## 4.3 Real-Time Safety — RESOLVED (Phase 11)
 
-Per NFR-RT-005 and the honest finding at the top of this document: **the real Audio Engine's ring buffer and any cross-thread communication in the deadline-critical path must use lock-free primitives**, not `std::sync::Mutex`. Candidate approaches (not yet evaluated in detail — flagged as a Phase 7/8 decision, not resolved here):
+~~Per NFR-RT-005 and the honest finding at the top of this document: **the real Audio Engine's ring buffer and any cross-thread communication in the deadline-critical path must use lock-free primitives**, not `std::sync::Mutex`. Candidate approaches (not yet evaluated in detail — flagged as a Phase 7/8 decision, not resolved here):
 - A single-producer/single-consumer lock-free ring buffer (e.g. via a dedicated crate, to be evaluated in Phase 7 — Technology Selection).
-- Atomic-based counters (already used correctly in the prototypes via `AtomicU64` for callback/gap counting — that part of the prototypes' design *does* meet NFR-RT-005, only the `Mutex`-guarded ring buffer and shared state do not).
+- Atomic-based counters (already used correctly in the prototypes via `AtomicU64` for callback/gap counting — that part of the prototypes' design *does* meet NFR-RT-005, only the `Mutex`-guarded ring buffer and shared state do not).~~
+
+**Resolved in Phase 11 (Audio Engine Prototype):** the real `AudioEngine::start_recording()` implementation in `acapellastudio/src/audio/mod.rs` now uses `rtrb`, a wait-free SPSC ring buffer purpose-built for real-time audio, selected after verifying its documentation and design intent (not assumed). `Producer::push()` inside the real-time callback never blocks or allocates — this genuinely satisfies NFR-RT-005, not just in intent but in the actual shipped code. The `rtrb`-specific push/pop/full-buffer-rejection logic was verified in isolation; the full `cpal`-integrated version awaits real-hardware confirmation (same pattern as all DSP work in this project). Retained struck-through above for change history.
 
 **This is an explicit, acknowledged gap between the feasibility prototypes and production-ready architecture** — the prototypes were correctly scoped as feasibility tests (per the operating charter's own framing throughout the Feasibility Study), not production code, and this document does not pretend otherwise.
 

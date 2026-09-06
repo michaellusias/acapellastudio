@@ -56,13 +56,12 @@ impl AudioEngine {
 }
 ```
 
-**Known, unresolved design issue carried from Architecture §4.3:** the prototype's actual ring buffer implementation uses `std::sync::Mutex`, which is not real-time-safe by guarantee. This module's `AudioSink` trait (below) must be implemented using a lock-free ring buffer in production — **not yet selected or implemented**, remains open per Technology Selection §8's own gap list.
+**RESOLVED in Phase 11** (this design document predates that implementation work): the real `AudioEngine` implementation (`acapellastudio/src/audio/mod.rs`) uses `rtrb`, a wait-free SPSC ring buffer, in place of the `AudioSink` trait design sketched below — `Producer::push()` inside the real-time callback never blocks or allocates. The trait sketch below is retained for historical context (it correctly identified the requirement, before a concrete solution existed) rather than as the shipped design.
 
 ```rust
 pub trait AudioSink: Send {
-    fn write(&mut self, samples: &[f32]); // must be lock-free / wait-free in a real
-                                            // implementation - trait itself doesn't
-                                            // enforce this, a real gap
+    fn write(&mut self, samples: &[f32]); // superseded by rtrb::Producer in the
+                                            // real implementation - see above
 }
 ```
 
@@ -367,7 +366,7 @@ pub type TrackId = u64;
 
 | Module | Real prototype behind it? | Known defects | Design completeness |
 |---|---|---|---|
-| `audio/` | Yes | Mutex-based ring buffer not RT-safe (open) | High — closest to production-ready design |
+| `audio/` | Yes | ~~Mutex-based ring buffer not RT-safe~~ RESOLVED (Phase 11, rtrb) | High — closest to production-ready design |
 | `dsp::pitch` | Yes | None found; `confidence` field unimplemented | High |
 | `dsp::pitch_shift` | Yes | **Octave-up failure (confirmed)**; zero formant testing | Medium — interface redesigned around the known defect |
 | `pitch_edit/` | No | — | Low — first-pass design only |

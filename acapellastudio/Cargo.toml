@@ -6,6 +6,13 @@ edition = "2021"
 [dependencies]
 cpal = { version = "0.18.2", features = ["pipewire", "realtime"] }
 rustfft = "6"
+# rtrb: wait-free SPSC ring buffer, purpose-built for real-time audio.
+# Selected to finally resolve the Mutex-in-the-real-time-path gap flagged
+# repeatedly since the Feasibility Study (§1.11) and Architecture (§4.3) -
+# this crate's own documentation explicitly targets exactly this use case
+# ("realtime-safe single-producer single-consumer ring buffer"), a stronger
+# and more precisely-matched guarantee than a generic lock-free queue.
+rtrb = "0.3"
 
 [dev-dependencies]
 # real, standard Rust testing - cargo test is Rust's built-in framework,

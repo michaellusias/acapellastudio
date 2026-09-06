@@ -1,0 +1,38 @@
+name: CI
+
+# Real system dependencies below are exactly what was discovered as
+# necessary during the Feasibility Study (Phase 3), one real compile
+# error at a time, on the actual reference hardware - not guessed here.
+# See docs/03_feasibility_study.md §1.1.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system audio/build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev clang libclang-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        working-directory: acapellastudio
+        run: cargo build --verbose
+
+      - name: Run tests
+        working-directory: acapellastudio
+        run: cargo test --verbose
+        # Note: AudioEngine::new() may legitimately fail in CI (no real audio
+        # device on the runner) - the test for it only checks it doesn't
+        # panic, not that it succeeds, exactly to keep CI passing honestly
+        # without pretending a virtual runner has real audio hardware.
