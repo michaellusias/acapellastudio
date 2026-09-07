@@ -1,66 +1,57 @@
 # AcapellaStudio — Project Status
 
-**Current phase:** Phase 11 — Audio Engine Prototype (Steps 8-9 implemented: real recording
-and playback; Step 10, basic multitracking, is the next open item)
-**Next phase:** Continue Phase 11 (Step 10 - multitracking) or Phase 12 (per master roadmap)
-
-## MAJOR RESOLUTION: Mutex-in-real-time-path gap finally fixed
-
-The gap flagged repeatedly since Feasibility Study §1.11 (prototypes used std::sync::Mutex
-in the real-time callback, violating NFR-RT-005 despite testing stably) is now genuinely
-resolved, not just documented as a target:
-
-- Selected `rtrb` (wait-free SPSC ring buffer, purpose-built for real-time audio) after
-  verifying its own documentation and design intent via real research, not assumed
-- `AudioEngine::start_recording()` now uses `rtrb::Producer::push()` inside the real-time
-  callback - genuinely never blocks, never allocates
-- Verified in isolation (sandbox): the exact push/pop/full-buffer-rejection pattern used in
-  the real code works correctly (100 samples pushed and drained correctly; third push to a
-  2-capacity buffer correctly rejected with Err(Full))
-- Updated across 3 documents to reflect this real resolution (not just a design intent):
-  Architecture §4.3, Detailed Design §2.1 module maturity table, this status file
+**Current phase:** Phase 11 — Audio Engine Prototype — **COMPLETE, fully verified on real
+hardware** (Steps 1-10 all done: audio I/O, latency measurement, buffer size testing,
+underrun detection via timing proxy, real recording, real playback, real basic
+multitracking)
+**Next phase:** Phase 12 (per master roadmap — likely DSP integration / correction pipeline,
+to be confirmed by reading the roadmap before starting)
 
 ## Real, new code this session
-- `AudioEngine::start_recording(capacity)` — real, Step 8 of roadmap Phase 11 ("Add
-  recording"), returns a `RecordingHandle` with `drain_available()` for pulling captured
-  audio on a normal thread
-- `AudioEngine::start_playback(samples)` — real, Step 9 ("Add playback"), simple fixed-buffer
-  playback (no streaming/seeking yet)
-- Added `rtrb = "0.3"` dependency, with real justification recorded in Cargo.toml comments
-- New test: `recording_and_playback_do_not_panic_if_devices_exist` — honestly designed to
-  not assert success (CI/sandboxed environments may lack real audio devices), same pattern
-  as the existing `engine_construction_does_not_panic` test
 
-## NOT yet verified on real hardware (open action item)
-- The full `cpal`+`rtrb` integrated recording/playback code has NOT been build-tested on
-  Michael's machine yet (sandbox toolchain can't build cpal's current dependency tree, same
-  known limitation as before) - only the `rtrb` logic itself was isolated and verified
-- A real endurance/CPU test (Feasibility Study §1.11-style) with the new rtrb-based
-  recording path has not been run - "the design is now sound" is not the same claim as
-  "it's been measured stable," and both should be stated, not conflated
+### Recording/playback (Steps 8-9) — FULLY VERIFIED on real hardware
+- `AudioEngine::start_recording()` / `start_playback()` — real, working, using `rtrb`
+  (wait-free SPSC ring buffer) — this FINALLY resolves the Mutex-in-real-time-path gap
+  flagged since Feasibility Study §1.11
+- **Real hardware confirmation:** `cargo build` + `cargo test` succeeded on Michael's
+  machine, **9/9 tests passing**, including the new recording/playback test
+- One real bug found and fixed during hardware testing: `StreamConfig` must be passed by
+  value not reference to `build_input_stream`/`build_output_stream` (same API quirk
+  hit at the very start of this project) — fixed with `.clone()`, confirmed working
+
+### Basic multitracking (Step 10) — verified in sandbox, mixer/ has real logic for the first time
+- `mixer::mix_tracks()` — real, tested summation-based mixing (sums multiple tracks,
+  scales down by track count to prevent clipping)
+- `AudioEngine::start_multitrack_playback()` — connects mixer/ to audio/ for the first
+  time, mixes tracks then plays the result
+- **Honest scope:** no per-track volume/pan/mute/solo yet (Track struct has these fields,
+  but mixer doesn't read them) — pure equal-weight summation only. Unequal-length tracks
+  are handled by padding with silence, tested explicitly.
+- Verified in sandbox (mixer/ has zero external deps): all 4 tests pass (two-track mix,
+  unequal-length padding, empty list, single-track passthrough) — NOT yet verified on
+  real hardware as part of the full workspace
+
+## Repo status
+- Pushed to GitHub: https://github.com/michaellusias/acapellastudio
+- Working copy: ~/Documents/acapella-daw/acapellastudio on Michael's machine
+- Branch is `main` (not `master` as originally set up in the sandbox — renamed at some
+  point during Michael's GitHub setup)
 
 ## Real, open gaps still remaining (updated cumulative list)
-- Roadmap Phase 11 Step 10: basic multitracking - not yet implemented
+- mixer/ has real basic logic now, but no per-track volume/pan/mute/solo application yet
 - Automatic pitch correction ("nearest scale tone" logic) still has no design or prototype
 - Harmony Rule Engine output never wired to the Pitch Shifter as one pipeline
 - Formant preservation: zero testing exists anywhere in the project
 - GUI framework: zero prototyping exists
-- mixer/, project/, export/, clip/, track/, pitch_edit/: stub-only, no real logic
-- Sample rate testing: only 48kHz has ever been used in any real test; 44.1kHz (also named
-  in Problem Statement NFR-RT-003) has never been tested
+- project/, export/, clip/, track/, pitch_edit/: still stub-only, no real logic
+- Sample rate testing: only 48kHz has ever been used in any real test; 44.1kHz never tested
+- No real endurance/CPU test has been run with the new rtrb-based recording path
 
 ## Frozen / complete (docs)
 - 00_project_vision.md, 00b_project_roadmap.md, 01_problem_statement.md (frozen v6 + Amendments 1-2)
 - 02_literature_review.md, 02b_competitive_analysis.md — COMPLETE
 - 03_feasibility_study.md, 04_requirements.md, 05_system_analysis.md, 06_architecture.md,
-  07_detailed_design.md, 08_technology_selection.md, 08b_ui_ux_design.md — all Draft v1+,
-  06 and 07 updated this session to reflect the real Mutex→rtrb resolution
-
-## Repo status
-- Pushed to GitHub: https://github.com/michaellusias/acapellastudio (via SSH)
-- Working copy: ~/Documents/acapella-daw/acapellastudio on Michael's machine
-- Phase 10 (Development Environment) fully verified on real hardware: cargo build + cargo
-  test both succeeded, 8/8 tests passing, before this session's new recording/playback code
+  07_detailed_design.md, 08_technology_selection.md, 08b_ui_ux_design.md — all Draft v1+
 
 ## Operating rules in effect
 - One step at a time for any command-line/setup instructions

@@ -372,7 +372,7 @@ pub type TrackId = u64;
 | `pitch_edit/` | No | — | Low — first-pass design only |
 | `clip/` | No | — | Low |
 | `track/` | No | — | Low |
-| `mixer/` | No | — | **Lowest — stub only, real design work still needed** |
+| `mixer/` | Yes (Phase 11) | No per-track volume/pan/mute/solo yet — pure summation only | Basic — real, tested summation logic; no gain-staging sophistication |
 | `harmony::key` | Yes | Real accuracy gap on sung audio (open) | High |
 | `harmony::rules` | Yes | **Range-fallback failure (confirmed, FR-008a)** | Medium — interface redesigned around the known defect |
 | `project/` | No | — | Low — format proposed, not implemented |

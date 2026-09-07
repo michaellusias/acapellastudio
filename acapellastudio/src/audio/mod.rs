@@ -152,6 +152,19 @@ impl AudioEngine {
         })
     }
 
+    /// Roadmap Phase 11, Step 10 ("basic multitracking"). Mixes multiple
+    /// tracks together (via crate::mixer::mix_tracks - real, basic
+    /// summation with a fixed scale-down, see mixer/mod.rs for the honest
+    /// scope of what this does and doesn't do yet) and plays the result.
+    /// This is the first place audio/ and mixer/ are actually connected.
+    pub fn start_multitrack_playback(
+        &self,
+        tracks: Vec<Vec<f32>>,
+    ) -> Result<PlaybackHandle, AudioEngineError> {
+        let mixed = crate::mixer::mix_tracks(&tracks);
+        self.start_playback(mixed)
+    }
+
     /// Roadmap Phase 11, Step 9 ("Add playback"). Plays back a fixed buffer
     /// of already-captured/processed samples. This is intentionally simple
     /// (no streaming/seeking) - sufficient for previewing a short recording
