@@ -40,19 +40,33 @@ pub struct AudioEngine {
 /// Returned by `start_recording()`. Holds the real-time input stream alive
 /// (dropping this stops recording) and a Consumer for draining captured
 /// samples from a normal, non-real-time thread.
+///
+/// REAL BUG FOUND AND FIXED HERE (via real testing with pitch_benchmark.rs
+/// on actual stereo input hardware): the input device is stereo (2
+/// channels), and the original version of this struct exposed raw
+/// interleaved L/R samples via drain_available() with no way for callers
+/// to know the channel count - a caller doing mono pitch detection on that
+/// raw data (as pitch_benchmark.rs did) gets corrupted, alternating-channel
+/// data, not a real continuous waveform. This showed up as a real, visible
+/// symptom: a 15-second recording reporting as "30.29s of audio" (exactly
+/// 2x, from treating 2-channel interleaved sample COUNT as if it were
+/// mono sample count) and a suspiciously narrow, low detected frequency
+/// range. Fixed by tracking channel count and providing a real mono-mixing
+/// drain method, matching what the very first live-mic YIN prototype did
+/// correctly (prototypes/audio-io-prototype) but which this rewrite had
+/// regressed on.
 pub struct RecordingHandle {
     consumer: Consumer<f32>,
+    channels: usize,
     _stream: cpal::Stream,
 }
 
 impl RecordingHandle {
-    /// Drains all samples currently available in the ring buffer. Intended
-    /// to be called repeatedly (e.g. in a loop with a short sleep, or from
-    /// a UI timer) on a normal thread to build up the full recording.
-    ///
-    /// This method's own Vec allocation happens OUTSIDE the real-time
-    /// callback - exactly where NFR-RT-005 permits it. The real-time
-    /// producer side (in start_recording()'s callback) never allocates.
+    /// Drains all RAW interleaved samples currently available (e.g. for a
+    /// stereo device: L,R,L,R,...). Callers doing anything pitch/mono-
+    /// related should use `drain_available_mono()` instead - this raw
+    /// method is for callers that genuinely want the original channel
+    /// layout (e.g. real stereo playback/export), not for DSP analysis.
     pub fn drain_available(&mut self) -> Vec<f32> {
         let mut samples = Vec::new();
         while let Ok(sample) = self.consumer.pop() {
@@ -60,6 +74,31 @@ impl RecordingHandle {
         }
         samples
     }
+
+    /// Drains available samples and mono-mixes them (averages across
+    /// channels), correctly de-interleaving multi-channel input. This is
+    /// what any pitch-detection or other mono-DSP caller should use -
+    /// using drain_available() directly for that purpose is exactly the
+    /// real bug this method was added to fix.
+    pub fn drain_available_mono(&mut self) -> Vec<f32> {
+        let raw = self.drain_available();
+        mono_mix(&raw, self.channels)
+    }
+}
+
+/// Pure, independently-testable mono-mixing logic, extracted from
+/// RecordingHandle::drain_available_mono() so it can be verified without
+/// needing a real audio device (RecordingHandle itself can't be
+/// constructed without one, since it owns a real cpal::Stream).
+fn mono_mix(interleaved: &[f32], channels: usize) -> Vec<f32> {
+    if channels <= 1 {
+        return interleaved.to_vec();
+    }
+    interleaved
+        .chunks(channels)
+        .filter(|chunk| chunk.len() == channels) // drop a trailing partial frame, if any
+        .map(|chunk| chunk.iter().sum::<f32>() / channels as f32)
+        .collect()
 }
 
 /// Returned by `start_playback()`. Holds the real-time output stream alive.
@@ -148,6 +187,7 @@ impl AudioEngine {
 
         Ok(RecordingHandle {
             consumer,
+            channels: self.input_config.channels as usize,
             _stream: stream,
         })
     }
@@ -224,5 +264,32 @@ mod tests {
                 let _samples = handle.drain_available();
             }
         }
+    }
+
+    /// Real regression test for the real bug found via pitch_benchmark.rs
+    /// on actual stereo hardware: mono_mix() must correctly average
+    /// interleaved channel data, not just pass it through.
+    #[test]
+    fn mono_mix_averages_stereo_correctly() {
+        // Stereo: L=1.0, R=3.0 -> mono average = 2.0, for two frames.
+        let interleaved = vec![1.0, 3.0, 1.0, 3.0];
+        let result = mono_mix(&interleaved, 2);
+        assert_eq!(result, vec![2.0, 2.0]);
+    }
+
+    #[test]
+    fn mono_mix_passes_through_mono_unchanged() {
+        let samples = vec![0.5, -0.3, 0.8];
+        let result = mono_mix(&samples, 1);
+        assert_eq!(result, samples);
+    }
+
+    #[test]
+    fn mono_mix_drops_trailing_partial_frame() {
+        // 5 samples, 2 channels -> 2 complete frames + 1 leftover sample,
+        // which must be dropped, not silently included as a bad frame.
+        let interleaved = vec![1.0, 1.0, 2.0, 2.0, 99.0];
+        let result = mono_mix(&interleaved, 2);
+        assert_eq!(result, vec![1.0, 2.0]); // the trailing 99.0 is dropped
     }
 }

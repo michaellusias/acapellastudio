@@ -103,7 +103,11 @@ pub struct DetectedNote {
     pub frequency: f64,
     pub onset_sample: u64,
     pub duration_samples: u64,
-    pub confidence: f64,  // NOT YET DEFINED how this is computed - open item
+    pub confidence: f64,  // RESOLVED (Phase 12): derived from the real YIN
+                          // algorithm's own CMNDF value at the selected tau
+                          // (1.0 - d_prime[tau]) - see YinFftDetector::
+                          // detect_with_confidence() in the real crate,
+                          // acapellastudio/src/dsp/pitch.rs
 }
 ```
 

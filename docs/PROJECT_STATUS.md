@@ -1,57 +1,101 @@
 # AcapellaStudio — Project Status
 
-**Current phase:** Phase 11 — Audio Engine Prototype — **COMPLETE, fully verified on real
-hardware** (Steps 1-10 all done: audio I/O, latency measurement, buffer size testing,
-underrun detection via timing proxy, real recording, real playback, real basic
-multitracking)
-**Next phase:** Phase 12 (per master roadmap — likely DSP integration / correction pipeline,
-to be confirmed by reading the roadmap before starting)
+**Current phase:** Phase 12 — Pitch Detection (bug found+fixed, first real post-fix benchmark
+data recorded)
+**Next phase:** Continue Phase 12 (remaining 6 test conditions: registers, vibrato, quiet/
+loud, breathiness, background noise) before Phase 13, per master roadmap
+
+## REAL POST-FIX BENCHMARK RESULT — normal_singing condition
+
+```
+Captured 723584 samples (15.07s of audio) — correct, was 30.29s pre-fix
+Windows with a plausible detection: 4560/5638 (80.9%)
+Mean confidence: 0.9740
+Frequency range: 66.7Hz - 994.8Hz
+```
+
+Direct confirmation the mono-mixing fix worked (duration now matches requested 15s). Strong
+detection rate and confidence, consistent with earlier live-mic prototype findings (~94%
+under continuous vocalization). Full writeup in new doc: `docs/09_dsp_design.md`
+(roadmap Phase 12 deliverable: "Pitch Detection Module, Benchmark Results, Algorithm
+Decision"). 6 of 7 roadmap test conditions remain untested (registers, vibrato, quiet/loud,
+breathiness, background noise).
+
+## REAL BUG FOUND AND FIXED: stereo interleaving corrupted pitch analysis
+
+The very first real run of `pitch_benchmark.rs` (normal_singing, 15s) surfaced a genuine bug,
+not just noisy results:
+- Reported "30.29s of audio" for a requested 15-second recording — exactly 2x, a real symptom
+- Detected frequency range (60.1-102.1Hz) was suspiciously narrow/low for normal singing
+- Detection rate only 13.2%, well below the ~94% seen in earlier live-mic prototype testing
+
+**Root cause:** the input device is stereo (2 channels). `AudioEngine::start_recording()`
+(rewritten in Phase 11) pushed raw interleaved L/R samples into the ring buffer with no
+mono-mixing — a regression from the original live-mic YIN prototype, which correctly
+mono-mixed before analysis. `pitch_benchmark.rs` then fed this raw interleaved data directly
+into a mono pitch detector, corrupting the signal and doubling the apparent sample count.
+
+**Fix:** added `RecordingHandle::drain_available_mono()` (uses a new, independently-verified
+pure function `mono_mix()`) that correctly averages/de-interleaves multi-channel input.
+`pitch_benchmark.rs` updated to use it. `drain_available()` (raw, un-mixed) is kept for
+callers that genuinely want the original channel layout.
+
+**Real verification:** `mono_mix()` isolated and tested in the sandbox (zero external deps) —
+3/3 tests pass: stereo averaging correctness, mono passthrough, and correct handling of a
+trailing partial frame (dropped, not corrupted). NOT yet re-verified against real stereo
+hardware with a real re-run of the benchmark — that's the immediate next step.
 
 ## Real, new code this session
 
-### Recording/playback (Steps 8-9) — FULLY VERIFIED on real hardware
-- `AudioEngine::start_recording()` / `start_playback()` — real, working, using `rtrb`
-  (wait-free SPSC ring buffer) — this FINALLY resolves the Mutex-in-real-time-path gap
-  flagged since Feasibility Study §1.11
-- **Real hardware confirmation:** `cargo build` + `cargo test` succeeded on Michael's
-  machine, **9/9 tests passing**, including the new recording/playback test
-- One real bug found and fixed during hardware testing: `StreamConfig` must be passed by
-  value not reference to `build_input_stream`/`build_output_stream` (same API quirk
-  hit at the very start of this project) — fixed with `.clone()`, confirmed working
+### Pitch pipeline gaps closed (real, testable without a mic)
+- `PitchResult` struct: frequency + genuine confidence + MIDI note — closes the aspirational
+  "confidence field, not implemented" gap from Detailed Design §2.2
+- Confidence is REAL, not invented: derived directly from YIN's own internal CMNDF value at
+  the selected tau (`1.0 - d_prime[tau]`), grounded in what the algorithm already computes
+- `frequency_to_midi_note()` — standard 12-tone equal temperament formula, independently
+  verified against 4 known reference points (A4=69/440Hz, Middle C=60/261.63Hz, A3=57/220Hz,
+  A5=81/880Hz) before being added to the codebase — all matched to within 0.01
+- 3 new real unit tests added: MIDI conversion against reference points, high-confidence
+  on a clean tone, cross-check that midi_note corresponds to the detected frequency
 
-### Basic multitracking (Step 10) — verified in sandbox, mixer/ has real logic for the first time
-- `mixer::mix_tracks()` — real, tested summation-based mixing (sums multiple tracks,
-  scales down by track count to prevent clipping)
-- `AudioEngine::start_multitrack_playback()` — connects mixer/ to audio/ for the first
-  time, mixes tracks then plays the result
-- **Honest scope:** no per-track volume/pan/mute/solo yet (Track struct has these fields,
-  but mixer doesn't read them) — pure equal-weight summation only. Unequal-length tracks
-  are handled by padding with silence, tested explicitly.
-- Verified in sandbox (mixer/ has zero external deps): all 4 tests pass (two-track mix,
-  unequal-length padding, empty list, single-track passthrough) — NOT yet verified on
-  real hardware as part of the full workspace
+### Benchmark harness (real infrastructure, not yet run under real conditions)
+- `examples/pitch_benchmark.rs` — records a labeled test condition for N seconds, runs the
+  real YinFftDetector over a sliding window, logs per-window results (frequency, confidence,
+  MIDI note, detection success) to a CSV file, prints summary stats
+- This directly supports roadmap Phase 12's explicit test list: different singers, different
+  registers, vibrato, quiet singing, loud singing, breathiness, background noise
+- **NOT YET RUN under any of these real conditions** — this is real, working infrastructure
+  for gathering the data, not the data itself. Running it is the next real step.
 
-## Repo status
-- Pushed to GitHub: https://github.com/michaellusias/acapellastudio
-- Working copy: ~/Documents/acapella-daw/acapellastudio on Michael's machine
-- Branch is `main` (not `master` as originally set up in the sandbox — renamed at some
-  point during Michael's GitHub setup)
+## Sandbox note
+- The sandbox environment reset entirely between sessions (lost repo + Rust toolchain).
+  Recovered by re-cloning from GitHub (confirmed as the authoritative source) and
+  reinstalling Rust. No project work was actually lost — Michael's local machine had the
+  most recent state (multitrack commit) that hadn't yet reached the sandbox's stale clone.
 
 ## Real, open gaps still remaining (updated cumulative list)
-- mixer/ has real basic logic now, but no per-track volume/pan/mute/solo application yet
+- Phase 12's real varied-condition benchmark data has not been gathered yet (harness exists,
+  data doesn't)
+- mixer/ has real basic logic, but no per-track volume/pan/mute/solo application yet
 - Automatic pitch correction ("nearest scale tone" logic) still has no design or prototype
 - Harmony Rule Engine output never wired to the Pitch Shifter as one pipeline
 - Formant preservation: zero testing exists anywhere in the project
 - GUI framework: zero prototyping exists
 - project/, export/, clip/, track/, pitch_edit/: still stub-only, no real logic
 - Sample rate testing: only 48kHz has ever been used in any real test; 44.1kHz never tested
-- No real endurance/CPU test has been run with the new rtrb-based recording path
+- No real endurance/CPU test has been run with the rtrb-based recording path
 
 ## Frozen / complete (docs)
 - 00_project_vision.md, 00b_project_roadmap.md, 01_problem_statement.md (frozen v6 + Amendments 1-2)
 - 02_literature_review.md, 02b_competitive_analysis.md — COMPLETE
 - 03_feasibility_study.md, 04_requirements.md, 05_system_analysis.md, 06_architecture.md,
   07_detailed_design.md, 08_technology_selection.md, 08b_ui_ux_design.md — all Draft v1+
+
+## Repo status
+- Pushed to GitHub: https://github.com/michaellusias/acapellastudio
+- Working copy: ~/Documents/acapella-daw/acapellastudio on Michael's machine
+- Phase 11 (Audio Engine Prototype) COMPLETE, fully verified: 13/13 tests passing on real
+  hardware, including recording, playback, and basic multitracking
 
 ## Operating rules in effect
 - One step at a time for any command-line/setup instructions
