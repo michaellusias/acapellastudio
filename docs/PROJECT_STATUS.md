@@ -5,21 +5,16 @@ data recorded)
 **Next phase:** Continue Phase 12 (remaining 6 test conditions: registers, vibrato, quiet/
 loud, breathiness, background noise) before Phase 13, per master roadmap
 
-## REAL POST-FIX BENCHMARK RESULT — normal_singing condition
+## REAL VIBRATO TEST RESULTS — two attempts, neither conclusive yet
 
-```
-Captured 723584 samples (15.07s of audio) — correct, was 30.29s pre-fix
-Windows with a plausible detection: 4560/5638 (80.9%)
-Mean confidence: 0.9740
-Frequency range: 66.7Hz - 994.8Hz
-```
-
-Direct confirmation the mono-mixing fix worked (duration now matches requested 15s). Strong
-detection rate and confidence, consistent with earlier live-mic prototype findings (~94%
-under continuous vocalization). Full writeup in new doc: `docs/09_dsp_design.md`
-(roadmap Phase 12 deliverable: "Pitch Detection Module, Benchmark Results, Algorithm
-Decision"). 6 of 7 roadmap test conditions remain untested (registers, vibrato, quiet/loud,
-breathiness, background noise).
+Attempt 1: 97.5% detection, 0.987 confidence, 261-594Hz range.
+Attempt 2 (with new oscillation analysis): 57.6% detection, 285.3 cents std dev, 8.68Hz
+estimated oscillation rate — but Michael confirmed this take "wasn't fully consistent / just
+experimenting," not a controlled single-note vibrato hold. The 285-cent spread (vs. typical
+cited vibrato depth of 50-100 cents) is more consistent with melodic movement than vibrato
+depth. Neither attempt is a clean, controlled vibrato-tracking measurement yet — that test
+(hold one note with deliberate vibrato) remains a real, open action item. Full details:
+`docs/09_dsp_design.md` §2.3.
 
 ## REAL BUG FOUND AND FIXED: stereo interleaving corrupted pitch analysis
 

@@ -41,6 +41,61 @@ use std::time::{Duration, Instant};
 
 const RING_SIZE: usize = 2048;
 
+fn analyze_oscillation(frequencies: &[f64], approx_window_step_seconds: f64) {
+    if frequencies.len() < 4 {
+        println!("Not enough detected windows to analyze oscillation.");
+        return;
+    }
+
+    let mean_freq: f64 = frequencies.iter().sum::<f64>() / frequencies.len() as f64;
+
+    // Depth, in cents (musically meaningful unit) - real vocal vibrato is
+    // typically cited in the range of roughly 50-100 cents depth, though
+    // this project has not independently verified that reference figure
+    // and it's stated here only as a rough sense-check, not an asserted
+    // fact.
+    let cents_deviations: Vec<f64> = frequencies
+        .iter()
+        .map(|&f| 1200.0 * (f / mean_freq).log2())
+        .collect();
+    let variance: f64 = cents_deviations.iter().map(|d| d * d).sum::<f64>() / cents_deviations.len() as f64;
+    let std_dev_cents = variance.sqrt();
+
+    // Zero-crossing count around the mean, to estimate an oscillation rate.
+    // NOTE: this assumes roughly uniform time spacing between consecutive
+    // entries in `frequencies`, which is only exactly true if there were
+    // no gaps (no undetected windows) in between - an approximation, not
+    // an exact measurement, and stated as such.
+    let mut crossings = 0;
+    for i in 1..frequencies.len() {
+        let prev_above = frequencies[i - 1] > mean_freq;
+        let curr_above = frequencies[i] > mean_freq;
+        if prev_above != curr_above {
+            crossings += 1;
+        }
+    }
+    let total_time = frequencies.len() as f64 * approx_window_step_seconds;
+    let estimated_rate_hz = (crossings as f64 / 2.0) / total_time;
+
+    println!("\n--- Oscillation analysis (approximate, see caveats in code) ---");
+    println!("Mean detected frequency: {:.1}Hz", mean_freq);
+    println!("Pitch deviation (std dev): {:.1} cents", std_dev_cents);
+    println!("Zero-crossings around mean: {}", crossings);
+    println!("Estimated oscillation rate: {:.2}Hz", estimated_rate_hz);
+    if estimated_rate_hz >= 3.0 && estimated_rate_hz <= 9.0 {
+        println!("This rate falls within a plausible human vibrato range (~3-9Hz) -");
+        println!("consistent with (but not proof of) genuine vibrato tracking.");
+    } else if estimated_rate_hz < 1.0 {
+        println!("Very low oscillation rate - pitch looks close to flat/sustained,");
+        println!("OR real vibrato is present but not being tracked as oscillation");
+        println!("(cannot distinguish these two cases from this metric alone).");
+    } else {
+        println!("Rate is outside the typical human vibrato range - could be a real");
+        println!("faster modulation, pitch instability/noise, or a detection artifact.");
+        println!("Not conclusive from this metric alone.");
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
@@ -130,6 +185,15 @@ fn main() {
         let max_freq = frequencies.iter().cloned().fold(f64::MIN, f64::max);
         println!("Mean confidence (on successful detections): {:.4}", mean_confidence);
         println!("Frequency range detected: {:.1}Hz - {:.1}Hz", min_freq, max_freq);
+
+        // REAL oscillation-rate estimate, added specifically because a high
+        // detection rate/confidence alone does NOT verify that vibrato (or
+        // any pitch modulation) is actually being tracked correctly -
+        // YIN could report confident detections while smoothing over real
+        // oscillation. This does not prove good tracking either, but it's
+        // real, computed evidence rather than trusting the summary stats
+        // alone.
+        analyze_oscillation(&frequencies, step as f64 / sample_rate);
     } else {
         println!("No successful detections - condition may be too difficult for current YIN implementation,");
         println!("or no audio signal was present. This is itself a real, useful result to record.");

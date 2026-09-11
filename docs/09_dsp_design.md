@@ -58,13 +58,54 @@ The earlier controlled 440Hz reference-tone test (Feasibility Study §2.7, 0.99 
 remains the actual accuracy-ground-truth result; this benchmark is about real-world
 robustness (detection rate, confidence under real singing), not accuracy re-verification.
 
-## 2.3 Remaining conditions — NOT YET TESTED
+## 2.3 Condition: `vibrato` — two real attempts, second one inconclusive by design
+
+**Attempt 1** (real result, singing style not explicitly recorded at the time):
+```
+Captured 723840 samples (15.08s of audio)
+Windows with a plausible detection: 5498/5640 (97.5%)
+Mean confidence: 0.9873
+Frequency range: 261.0Hz - 594.0Hz
+```
+Notably higher detection rate and confidence than `normal_singing`, and a narrower frequency
+range — consistent with (not proven to be) a more sustained, continuous vocal performance
+than the melodic `normal_singing` test.
+
+**Attempt 2** (real result, after adding oscillation-rate analysis — Michael confirmed this
+take was "not fully consistent / just experimenting," not a controlled single-note vibrato
+hold):
+```
+Captured 726528 samples (15.14s of audio)
+Windows with a plausible detection: 3262/5661 (57.6%)
+Mean confidence: 0.9486
+Frequency range: 66.0Hz - 616.0Hz
+Pitch deviation (std dev): 285.3 cents
+Estimated oscillation rate: 8.68Hz (falls within the ~3-9Hz plausible human vibrato range)
+```
+
+**Honest interpretation — why this run doesn't confirm or refute vibrato tracking quality:**
+A 285.3-cent standard deviation is far wider than typical cited vocal vibrato depth (roughly
+50-100 cents) — this is more consistent with singing across multiple notes/a range than a
+single sustained pitch with vibrato, which matches Michael's own confirmation that the take
+wasn't a consistent single-note vibrato hold. The 8.68Hz oscillation-rate estimate technically
+falls in the plausible vibrato range, but given the wide cents spread, this number is just as
+plausibly measuring melodic movement or genuine detection jumpiness as true vibrato
+oscillation — the tool's own printed caveat ("consistent with, not proof of") applies exactly
+here, and should not be read as confirmation.
+
+**Real conclusion: neither vibrato attempt is a clean, controlled test yet.** A genuine
+vibrato-tracking measurement needs a single sustained note held with deliberate, consistent
+vibrato for the test's full duration — this remains a real, open action item, not resolved
+by either attempt above.
+
+## 2.4 Remaining conditions — NOT YET TESTED
 
 Per the roadmap's Phase 12 test list, none of the following have real data yet:
 - Different singers (only Michael's voice tested so far)
 - Different registers (this one test doesn't isolate register — worth a dedicated run per
   register: low/mid/high)
-- Vibrato specifically
+- ~~Vibrato specifically~~ Two attempts made (§2.3), neither a clean controlled test — a
+  proper single-sustained-note vibrato hold is still needed
 - Quiet singing
 - Loud singing
 - Breathiness
