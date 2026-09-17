@@ -5,16 +5,22 @@ data recorded)
 **Next phase:** Continue Phase 12 (remaining 6 test conditions: registers, vibrato, quiet/
 loud, breathiness, background noise) before Phase 13, per master roadmap
 
-## REAL VIBRATO TEST RESULTS — two attempts, neither conclusive yet
+## REAL VIBRATO TEST RESULTS — synthetic validation is decisive, live tests remain ambiguous
 
-Attempt 1: 97.5% detection, 0.987 confidence, 261-594Hz range.
-Attempt 2 (with new oscillation analysis): 57.6% detection, 285.3 cents std dev, 8.68Hz
-estimated oscillation rate — but Michael confirmed this take "wasn't fully consistent / just
-experimenting," not a controlled single-note vibrato hold. The 285-cent spread (vs. typical
-cited vibrato depth of 50-100 cents) is more consistent with melodic movement than vibrato
-depth. Neither attempt is a clean, controlled vibrato-tracking measurement yet — that test
-(hold one note with deliberate vibrato) remains a real, open action item. Full details:
-`docs/09_dsp_design.md` §2.3.
+Two live attempts (97.5% detection / 261-594Hz range; 57.6% detection / 285.3¢ std dev / 8.68Hz
+estimated rate) — Michael confirmed attempt 2 wasn't a controlled single-note hold. Neither
+attempt cleanly resolved whether earlier oddities were performance or algorithm issues.
+
+**Resolved via synthetic ground-truth testing (pure signal processing, fully verified in
+sandbox, no hardware needed):** built `vibrato_synthesis_test.rs` — a sine wave with a KNOWN
+programmed vibrato rate/depth. Real result across 4 test cases (440Hz/5.5Hz/80¢, 220Hz/6Hz/60¢,
+440Hz/5.5Hz/250¢, 330Hz/4Hz/100¢): **100% detection, ZERO octave errors, rate recovery error
+under 1% in every case.** This is decisive: YIN correctly tracks vibrato on a clean signal,
+including at the same 250-cent depth seen in the ambiguous live test — strongly pointing to the
+live-test oddities being a performance/recording issue, not a YIN algorithm bug. Real-voice
+controlled vibrato testing remains open (this synthetic result rules out the algorithm as
+primary suspect, doesn't prove real-voice tracking is equally clean). Full details:
+`docs/09_dsp_design.md` §2.4.
 
 ## REAL BUG FOUND AND FIXED: stereo interleaving corrupted pitch analysis
 

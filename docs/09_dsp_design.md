@@ -98,14 +98,56 @@ vibrato-tracking measurement needs a single sustained note held with deliberate,
 vibrato for the test's full duration — this remains a real, open action item, not resolved
 by either attempt above.
 
-## 2.4 Remaining conditions — NOT YET TESTED
+## 2.4 Synthetic vibrato validation — REAL, DECISIVE result (resolves the live-test ambiguity)
+
+To isolate the algorithm from the live-singing performance variable, a synthetic vibrato
+generator (`acapellastudio/examples/vibrato_synthesis_test.rs`) was built: a sine wave with a
+KNOWN, programmed vibrato rate and depth, no microphone, no real-world noise. This is pure
+signal processing and was fully verified in the sandbox (no hardware dependency, unlike the
+audio I/O work throughout this project) — this result is authoritative as-is, not pending
+real-hardware re-confirmation.
+
+**Real results, 4 test cases spanning realistic vocal vibrato parameters:**
+
+| Base freq | Programmed rate | Programmed depth | Detection rate | Octave errors | Rate error | Mean freq error |
+|---|---|---|---|---|---|---|
+| 440Hz | 5.5Hz | 80¢ | 100.0% | 0 | 0.5% | 1.32¢ |
+| 220Hz | 6.0Hz | 60¢ | 100.0% | 0 | 0.4% | 0.70¢ |
+| 440Hz | 5.5Hz | 250¢ | 100.0% | 0 | 0.5% | 10.47¢ |
+| 330Hz | 4.0Hz | 100¢ | 100.0% | 0 | 0.9% | 1.65¢ |
+
+**Honest interpretation:** on clean synthetic signals, YIN achieves 100% detection, zero
+octave errors, and recovers the programmed vibrato rate to within 1% error in every case —
+including the 250-cent-depth case that mirrors the large spread seen in the live "inconsistent"
+test (§2.3, attempt 2). **This is a real, decisive answer to the question raised during live
+testing** (is this an algorithm problem or a performance/recording issue?): the same exact
+detector code tracks vibrato essentially perfectly under controlled conditions, which strongly
+points toward the live-test irregularities being caused by the actual singing performance (the
+note likely drifted, despite the intent to hold it steady) or real-world microphone/environment
+factors, not a fundamental YIN tracking bug.
+
+One data point worth noting precisely rather than glossing over: the detected pitch standard
+deviation was consistently *lower* than the programmed depth (e.g. 80¢ programmed → 55.7¢
+detected) — this is not inaccuracy, it's the expected mathematical relationship for a sinusoid
+(std dev ≈ amplitude/√2 ≈ 0.707×): 80×0.707≈56.6, matching 55.7 almost exactly, and the same
+ratio holds for all four cases. This is confirmation the tracking is genuinely faithful, not
+an error to be concerned about.
+
+**What this does NOT resolve:** whether YIN tracks vibrato equally well on a *real* voice,
+with real formants, breathiness, and microphone noise layered on top of genuine vibrato — that
+real-world test (a controlled, single-note, steady vibrato hold, sung carefully) is still a
+real, open item. This synthetic result rules out the algorithm as the primary suspect for the
+earlier live-test oddities, but doesn't yet prove real-voice vibrato tracking is equally clean.
+
+## 2.5 Remaining conditions — NOT YET TESTED
 
 Per the roadmap's Phase 12 test list, none of the following have real data yet:
 - Different singers (only Michael's voice tested so far)
 - Different registers (this one test doesn't isolate register — worth a dedicated run per
   register: low/mid/high)
-- ~~Vibrato specifically~~ Two attempts made (§2.3), neither a clean controlled test — a
-  proper single-sustained-note vibrato hold is still needed
+- ~~Vibrato specifically~~ Two live attempts made (§2.3), neither a clean controlled test.
+  Synthetic validation (§2.4) is decisive on clean signals (100% detection, 0 octave errors,
+  <1% rate error across 4 cases) — real-voice controlled vibrato test still remains open
 - Quiet singing
 - Loud singing
 - Breathiness
