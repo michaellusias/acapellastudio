@@ -1,5 +1,12 @@
 # AcapellaStudio — Project Status
 
+latest current phase
+**Current phase:** Phase 12 — Pitch Detection (6 of 7 real test conditions
+gathered: registers, vibrato, quiet, loud, breathiness, background noise;
+different_singers deferred)
+**Next phase:** Write Phase 12 algorithm-decision summary, then either
+Phase 13 or compare YIN against pYIN/SwiftF0 per NEXT_STEPS.md item 2 
+
 **Current phase:** Phase 12 — Pitch Detection (bug found+fixed, first real post-fix benchmark
 data recorded)
 **Next phase:** Continue Phase 12 (remaining 6 test conditions: registers, vibrato, quiet/
@@ -106,3 +113,120 @@ hardware with a real re-run of the benchmark — that's the immediate next step.
 - Real-time audio callback isolation rules apply from Phase 1 onward
 - Git commit convention: feat/fix/test/docs/refactor, descriptive messages
 - Every significant requirement traceable: Requirement → Design → Component → Implementation → Test → Result
+
+## Phase 12 benchmark — quiet_singing (real)
+
+`cargo run --release --example pitch_benchmark -- quiet_singing 15`
+
+- 5664 analysis windows, 5502 detected (97.1%)
+- Mean confidence: 0.9842
+- Frequency range: 237.8–278.8Hz
+- Data: `benchmark_quiet_singing.csv`
+- Not yet interpreted against a reference/expected pitch — just a raw
+  detection-rate/confidence result, same caveat as the other benchmark runs.
+  
+  
+## Phase 12 benchmark — loud_singing (real)
+
+`cargo run --release --example pitch_benchmark -- loud_singing 15`
+
+Two attempts — CSV only holds the second (same filename overwritten):
+- Attempt 1: 94.5% detection, frequency range 70.6–578.5Hz (~3 octaves) —
+  Michael confirmed this wasn't a controlled sustained note, so the wide
+  range is not attributable to a loud-signal octave-error artifact; left
+  unresolved/inconclusive, not re-testable (data overwritten).
+- Attempt 2 (sustained note + vibrato, controlled): 5664 windows, 5525
+  detected (97.5%), mean confidence 0.9808, frequency range 244.9–284.2Hz
+  — consistent with the quiet_singing result, no sign of loud-input octave
+  errors on this controlled take.
+
+Data: `benchmark_loud_singing.csv` (attempt 2 only)
+
+
+## Phase 12 benchmark — breathiness (real)
+
+`cargo run --release --example pitch_benchmark -- breathiness 15`
+
+First attempt was not a valid test (same clean technique as other
+conditions, mislabeled) — discarded, not logged as data.
+
+Second attempt (deliberately breathy/airy vocal technique, same pitch/mic/room):
+- 5663 windows, 4342 detected (76.7%) — a real drop from ~97-99% on clean
+  singing conditions
+- Mean confidence: 0.9514 (also lower than clean-condition ~0.98)
+- Frequency range: 61.6–565.8Hz (~3 octaves), std dev 306.9 cents — strongly
+  suggests octave errors introduced by the aperiodic breath noise, not a
+  genuine 3-octave vocal range in one held note
+- **First real evidence that breathiness meaningfully degrades YIN detection
+  accuracy**, consistent with Literature Review §1.1's flagged concern
+
+Data: `benchmark_breathiness.csv` (second attempt only)
+
+## Phase 12 benchmark — background_noise (real)
+
+`cargo run --release --example pitch_benchmark -- background_noise 15`
+
+Real ambient noise present: fan running, window open, music playing in
+background, while singing normally.
+
+- 5663 windows, 5461 detected (96.4%) — close to clean-condition detection
+  rates, noise did not meaningfully suppress raw detection
+- Mean confidence: 0.9743
+- Frequency range: 60.9–266.6Hz, std dev 127.3 cents — wide range similar
+  in shape to the breathiness result, likely occasional octave errors from
+  background noise interference rather than a genuine multi-octave sung
+  range
+- Detection rate held up better than breathiness (96.4% vs 76.7%), but
+  pitch-tracking stability shows the same octave-error symptom
+
+Data: `benchmark_background_noise.csv`
+
+
+## Phase 12 benchmark — register_high (real)
+
+`cargo run --release --example pitch_benchmark -- register_high 15`
+
+Two attempts — CSV only holds the second (same filename overwritten):
+- Attempt 1 (sustained high note, controlled): 5661 windows, 5595 detected
+  (98.8%), mean confidence 0.9689, frequency range 219.3–490.3Hz, std dev
+  57.6 cents. Normal variation for a real sustained note in a higher
+  register — no clear octave-error pattern.
+- Attempt 2 (deliberately bending off-pitch, not a controlled single-note
+  test): 5661 windows, 5557 detected (98.2%), mean confidence 0.9716,
+  frequency range 88.1–499.2Hz, std dev 149.1 cents. Wider range expected
+  given deliberate pitch movement — not directly comparable to attempt 1
+  or the other conditions' held-note tests.
+
+Data: `benchmark_register_high.csv` (attempt 2 only)
+
+## Phase 12 benchmark — register_low (real)
+
+`cargo run --release --example pitch_benchmark -- register_low 15`
+
+Two attempts — CSV only holds the second (same filename overwritten):
+- Attempt 1 (sustained low note): 5663 windows, 4994 detected (88.2%),
+  mean confidence 0.9449, frequency range 110.6–122.5Hz (tight, no
+  octave-error signature)
+- Attempt 2 (sustained low note): 5664 windows, 5497 detected (97.1%),
+  mean confidence 0.9511, frequency range 60.0–125.9Hz — 60Hz is ~half of
+  120Hz, a likely YIN octave error (mistaking fundamental for one octave
+  down), a known YIN weakness at low pitch
+
+Both attempts show lower confidence than register_high (0.9449/0.9511 vs
+0.9689) and an anomalous ~14Hz "oscillation" reading the harness itself
+flags as outside normal vibrato range — likely detection jitter at low
+pitch, not real modulation.
+
+**Real finding: YIN detection quality degrades at low pitch relative to
+high pitch** in this testing (lower confidence, lower/inconsistent
+detection rate, and an observed octave error) — consistent with the
+known limitation that low-frequency signals fit fewer waveform cycles
+per analysis window, weakening the autocorrelation estimate.
+
+Data: `benchmark_register_low.csv` (attempt 2 only)
+
+
+## Phase 12 benchmark — different_singers (deferred)
+
+Skipped — requires access to a second singer's voice, not available at
+test time. Left open; revisit if/when another voice becomes available.
